@@ -18,23 +18,85 @@ Item {
     signal requestQuickPanel()
     signal requestLauncher()
 
-    function toggleQuickPanel() {
-        launcherOpen = false
-        sidebarOpen = !sidebarOpen
-    }
-    function toggleLauncher() {
-        sidebarOpen = false
-        launcherOpen = !launcherOpen
-    }
-
     property bool sidebarOpen: false
+    property double sidebarClosedAt: 0
     property string sidebarSubView: "" // "" | "wifi" | "bt" | "widgets"
     property string wifiPwSsid: ""
     property bool wifiPwVisible: false
+
     property bool launcherOpen: false
+    property double launcherClosedAt: 0
     property string launcherQuery: ""
+
+    property bool weatherPopupOpen: false
+    property double weatherClosedAt: 0
+
+    property bool calendarPopupOpen: false
+    property double calendarClosedAt: 0
+    property int calYear: (new Date()).getFullYear()
+    property int calMonth: (new Date()).getMonth() // 0..11
+
     property int widgetResetGen: 0
     property int widgetVisGen: 0
+
+    function toggleQuickPanel(fromHotkey) {
+        launcherOpen = false
+        weatherPopupOpen = false
+        calendarPopupOpen = false
+        if (!fromHotkey && !sidebarOpen && (Date.now() - sidebarClosedAt) < 280)
+            return
+        if (sidebarOpen) {
+            sidebarClosedAt = Date.now()
+            sidebarOpen = false
+        } else {
+            sidebarOpen = true
+        }
+    }
+
+    function toggleLauncher(fromHotkey) {
+        sidebarOpen = false
+        weatherPopupOpen = false
+        calendarPopupOpen = false
+        if (!fromHotkey && !launcherOpen && (Date.now() - launcherClosedAt) < 280)
+            return
+        if (launcherOpen) {
+            launcherClosedAt = Date.now()
+            launcherOpen = false
+        } else {
+            launcherOpen = true
+        }
+    }
+
+    function toggleWeatherPopup() {
+        sidebarOpen = false
+        launcherOpen = false
+        calendarPopupOpen = false
+        if (!weatherPopupOpen && (Date.now() - weatherClosedAt) < 280)
+            return
+        if (weatherPopupOpen) {
+            weatherClosedAt = Date.now()
+            weatherPopupOpen = false
+        } else {
+            weatherPopupOpen = true
+            WeatherService.refresh()
+        }
+    }
+
+    function toggleCalendarPopup() {
+        sidebarOpen = false
+        launcherOpen = false
+        weatherPopupOpen = false
+        if (!calendarPopupOpen && (Date.now() - calendarClosedAt) < 280)
+            return
+        if (calendarPopupOpen) {
+            calendarClosedAt = Date.now()
+            calendarPopupOpen = false
+        } else {
+            calYear = nowDate.getFullYear()
+            calMonth = nowDate.getMonth()
+            calendarPopupOpen = true
+        }
+    }
 
     function isWidgetShown(key) {
         const _v = widgetVisGen
@@ -186,6 +248,11 @@ Item {
         return list
     }
 
+    readonly property var topRunningWindows: {
+        const arr = WindowTracker.runningApps || []
+        return arr.slice(0, 7)
+    }
+
     readonly property var filteredApps: {
         const all = AppLauncher.installedApps || []
         const q = launcherQuery.trim().toLowerCase()
@@ -201,8 +268,34 @@ Item {
         return out
     }
 
+    readonly property var calendarCells: {
+        const cells = []
+        const firstDay = new Date(calYear, calMonth, 1).getDay() // 0=Sun..6=Sat
+        const monFirstOffset = (firstDay + 6) % 7
+        const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+        const prevMonthDays = new Date(calYear, calMonth, 0).getDate()
+        const todayY = nowDate.getFullYear()
+        const todayM = nowDate.getMonth()
+        const todayD = nowDate.getDate()
+
+        for (let p = monFirstOffset - 1; p >= 0; --p) {
+            cells.push({ day: prevMonthDays - p, curMonth: false, isToday: false })
+        }
+        for (let d = 1; d <= daysInMonth; ++d) {
+            cells.push({
+                day: d,
+                curMonth: true,
+                isToday: (calYear === todayY && calMonth === todayM && d === todayD)
+            })
+        }
+        while (cells.length < 42) {
+            cells.push({ day: cells.length - (monFirstOffset + daysInMonth) + 1, curMonth: false, isToday: false })
+        }
+        return cells
+    }
+
     // =========================================================================
-    // Reusable Zero-Lag Draggable Desktop Widget (no x/y binding fight!)
+    // Reusable Zero-Lag Draggable Desktop Widget (60fps throttled drag!)
     // =========================================================================
     component M3DraggableWidget: PanelWindow {
         id: dwWin
@@ -229,6 +322,7 @@ Item {
         readonly property int targetH: Math.round(baseH * k)
 
         property bool draggingNow: false
+        property double lastDragMs: 0
 
         function syncGeo() {
             if (!draggingNow)
@@ -262,14 +356,21 @@ Item {
                 cursorShape: dwWin.draggingNow ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 onPressed: {
                     dwWin.draggingNow = true
+                    dwWin.lastDragMs = Date.now()
                     dwWin.beginNativeDrag(0, 44, m3Root.sw - 40, m3Root.sh - 40)
                 }
                 onPositionChanged: {
-                    if (dwWin.draggingNow)
+                    if (!dwWin.draggingNow)
+                        return
+                    const now = Date.now()
+                    if ((now - dwWin.lastDragMs) >= 16) {
+                        dwWin.lastDragMs = now
                         dwWin.stepNativeDrag()
+                    }
                 }
                 onReleased: {
                     if (dwWin.draggingNow) {
+                        dwWin.stepNativeDrag()
                         dwWin.endNativeDrag()
                         dwWin.draggingNow = false
                         ConfigStore.set("m3.widget." + dwWin.widgetKey + ".x", dwWin.x)
@@ -287,7 +388,7 @@ Item {
     }
 
     // =========================================================================
-    // 1. Adaptive Top Bar (Clear Pills on Desktop <-> Solid Bar over App Windows)
+    // 1. Adaptive Top Bar (Clear Pills <-> Solid Bar + Real Window Switcher + Popups)
     // =========================================================================
     PanelWindow {
         id: m3BarWin
@@ -333,7 +434,7 @@ Item {
                 }
             }
 
-            // Left Module Cluster
+            // Left Module Cluster: Wi-Fi + BT + Mute + Active App
             Rectangle {
                 anchors.left: parent.left; anchors.leftMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -357,6 +458,8 @@ Item {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
                                 m3Root.launcherOpen = false
+                                m3Root.weatherPopupOpen = false
+                                m3Root.calendarPopupOpen = false
                                 m3Root.sidebarSubView = "wifi"
                                 m3Root.sidebarOpen = true
                                 SystemControl.refreshWifi()
@@ -372,6 +475,8 @@ Item {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
                                 m3Root.launcherOpen = false
+                                m3Root.weatherPopupOpen = false
+                                m3Root.calendarPopupOpen = false
                                 m3Root.sidebarSubView = "bt"
                                 m3Root.sidebarOpen = true
                                 SystemControl.refreshBluetooth()
@@ -386,14 +491,11 @@ Item {
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => AudioService.toggleMasterMute()) }
                     }
 
-                    Rectangle {
-                        width: 1; height: 14; anchors.verticalCenter: parent.verticalCenter
-                        color: m3Root.colLayer0Border
-                    }
+                    Rectangle { width: 1; height: 14; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: Math.min(200, implicitWidth)
+                        width: Math.min(190, implicitWidth)
                         elide: Text.ElideRight
                         text: WindowTracker.activeAppName !== "" ? WindowTracker.activeAppName : "Desktop"
                         font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
@@ -402,10 +504,10 @@ Item {
                 }
             }
 
-            // Center Module Cluster
+            // Center Module Cluster: Weather Button + Live Running Window Switcher + Date/Calendar Button
             Rectangle {
                 anchors.centerIn: parent
-                height: 30; width: m3BarCenterRow.implicitWidth + 24
+                height: 30; width: m3BarCenterRow.implicitWidth + 20
                 radius: 15
                 color: Qt.rgba(m3Root.colLayer0Clear.r, m3Root.colLayer0Clear.g, m3Root.colLayer0Clear.b, 0.62 * (1.0 - m3BarWin.solidK))
                 border.width: 1
@@ -414,39 +516,93 @@ Item {
                 Row {
                     id: m3BarCenterRow
                     anchors.centerIn: parent
-                    spacing: 11
+                    spacing: 8
 
-                    Row {
-                        anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                        visible: WeatherService.ready
-                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? m3Root.wmoSymbol(WeatherService.weatherCode) : "☁"; color: m3Root.colOnLayer0 }
-                        Text { anchors.verticalCenter: parent.verticalCenter; text: WeatherService.temperature + "°C"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: m3Root.colOnLayer0 }
+                    // Interactive Weather Chip
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 24; width: m3BarWthRow.implicitWidth + 12; radius: 12
+                        color: (m3Root.weatherPopupOpen || m3BarWthMa.containsMouse) ? m3Root.colPrimaryContainer : "transparent"
+                        Row {
+                            id: m3BarWthRow; anchors.centerIn: parent; spacing: 4
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? m3Root.wmoSymbol(WeatherService.weatherCode) : "☁"; color: m3Root.weatherPopupOpen ? m3Root.colPrimary : m3Root.colOnLayer0 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: WeatherService.ready ? (WeatherService.temperature + "°C") : "--°"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: m3Root.colOnLayer0 }
+                        }
+                        MouseArea {
+                            id: m3BarWthMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => m3Root.toggleWeatherPopup())
+                        }
                     }
 
+                    Rectangle { width: 1; height: 14; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
+
+                    // Live Running Windows Switcher (Replaces static fake dots!)
                     Row {
-                        anchors.verticalCenter: parent.verticalCenter; spacing: 5
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 4
+
+                        Rectangle {
+                            visible: m3Root.topRunningWindows.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 18; height: 14; radius: 7
+                            color: m3Root.colPrimary
+                            Text { anchors.centerIn: parent; text: "•"; font.pixelSize: 11; font.weight: Font.Black; color: m3Root.colOnPrimary }
+                        }
+
                         Repeater {
-                            model: 5
+                            model: m3Root.topRunningWindows
                             delegate: Rectangle {
-                                required property int index
+                                required property var modelData
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: index === 0 ? 18 : 13; height: 13; radius: 6.5
-                                color: index === 0 ? m3Root.colPrimary : Qt.rgba(1, 1, 1, 0.18)
-                                Text { visible: index === 0; anchors.centerIn: parent; text: "1"; font.family: "Segoe UI"; font.pixelSize: 9; font.weight: Font.Black; color: m3Root.colOnPrimary }
+                                width: modelData.active ? 28 : 22
+                                height: 22; radius: 11
+                                color: modelData.active
+                                       ? m3Root.colPrimary
+                                       : (m3WinSwMa.containsMouse ? m3Root.colPrimaryContainer : Qt.rgba(1, 1, 1, 0.14))
+
+                                Image {
+                                    anchors.centerIn: parent
+                                    width: 14; height: 14
+                                    asynchronous: true; cache: true; smooth: true; mipmap: true
+                                    source: modelData.target ? ("image://winicon/" + encodeURIComponent(modelData.target)) : ""
+                                    opacity: modelData.minimized ? 0.55 : 1.0
+                                }
+
+                                MouseArea {
+                                    id: m3WinSwMa
+                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const tgt = modelData.target || ""
+                                        if (tgt !== "")
+                                            Qt.callLater(() => WindowTracker.activateOrToggle(tgt))
+                                    }
+                                }
                             }
                         }
                     }
 
-                    Text {
+                    Rectangle { width: 1; height: 14; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
+
+                    // Interactive Clock / Calendar Chip
+                    Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: Qt.formatDateTime(m3Root.nowDate, "ddd, dd/MM · hh:mm AP")
-                        font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
-                        color: m3Root.colOnLayer0
+                        height: 24; width: m3BarClkTxt.implicitWidth + 14; radius: 12
+                        color: (m3Root.calendarPopupOpen || m3BarClkMa.containsMouse) ? m3Root.colPrimaryContainer : "transparent"
+                        Text {
+                            id: m3BarClkTxt; anchors.centerIn: parent
+                            text: Qt.formatDateTime(m3Root.nowDate, "ddd, dd/MM · hh:mm AP")
+                            font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
+                            color: m3Root.calendarPopupOpen ? m3Root.colPrimary : m3Root.colOnLayer0
+                        }
+                        MouseArea {
+                            id: m3BarClkMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => m3Root.toggleCalendarPopup())
+                        }
                     }
                 }
             }
 
-            // Right Module Cluster
+            // Right Module Cluster: Media + Presets + Control Center
             Rectangle {
                 anchors.right: parent.right; anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -493,7 +649,7 @@ Item {
                         height: 22; width: 26; radius: 11
                         color: (m3Root.sidebarOpen || m3BarQpMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
                         Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "tune" : "⚙"; color: (m3Root.sidebarOpen || m3BarQpMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
-                        MouseArea { id: m3BarQpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
+                        MouseArea { id: m3BarQpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel(false)) }
                     }
                 }
             }
@@ -560,7 +716,7 @@ Item {
                             color: ucPwrMa.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent"
                             border.width: 1; border.color: m3Root.colOnPrimaryContainer
                             Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "power_settings_new" : "⏻"; color: m3Root.colOnPrimaryContainer }
-                            MouseArea { id: ucPwrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
+                            MouseArea { id: ucPwrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel(false)) }
                         }
                     }
                 }
@@ -608,7 +764,7 @@ Item {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 28; height: 28; radius: 14
                         color: Qt.rgba(m3Root.colLayer0.r, m3Root.colLayer0.g, m3Root.colLayer0.b, 0.35)
                         Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "tune" : "⚙"; color: m3Root.colOnSurfaceVariant }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel(false)) }
                     }
                 }
                 Column {
@@ -653,17 +809,17 @@ Item {
     }
 
     // =========================================================================
-    // 4. Draggable Widget 3: DigitalClock (420 x 158)
+    // 4. Draggable Widget 3: DigitalClock (Tight 148 x 158 Hitbox!)
     // =========================================================================
     M3DraggableWidget {
         widgetKey: "digitalClock"
-        defaultX: Math.max(Math.round(310 * m3Root.uiScale), m3Root.sw - Math.round(440 * m3Root.uiScale))
+        defaultX: Math.max(Math.round(310 * m3Root.uiScale), m3Root.sw - Math.round(440 * m3Root.uiScale)) + Math.round(136 * m3Root.uiScale)
         defaultY: Math.max(46, m3Root.sh - Math.round((158 + 12 + 120 + 12 + 120 + 12 + 120) * m3Root.uiScale) - 76)
-        baseW: 420
+        baseW: 148
         baseH: 158
 
         Item {
-            width: 420; height: 158
+            width: 148; height: 158
             Column {
                 anchors.horizontalCenter: parent.horizontalCenter; spacing: -18
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDateTime(m3Root.nowDate, "HH"); font.family: "Segoe UI"; font.pixelSize: 58; font.weight: Font.Black; color: m3Root.colPrimary }
@@ -966,7 +1122,7 @@ Item {
                         width: 40; height: 40; radius: 20; anchors.verticalCenter: parent.verticalCenter
                         color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
                         Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? "apps" : "⊞"; color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary }
-                        MouseArea { id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleLauncher()) }
+                        MouseArea { id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleLauncher(false)) }
                     }
                 }
             }
@@ -974,7 +1130,7 @@ Item {
     }
 
     // =========================================================================
-    // 9. Native end4-pC Right Sidebar (Wi-Fi/BT/Widgets/Sliders/Notifs/Presets + Esc)
+    // 9. Native end4-pC Right Sidebar (Wi-Fi/BT/Widgets + Reliable Esc Focus)
     // =========================================================================
     PanelWindow {
         id: m3SidebarWin
@@ -995,24 +1151,47 @@ Item {
         blurBehind: false
         color: "transparent"
 
+        Timer {
+            id: sbFocusTimer
+            interval: 45
+            repeat: false
+            onTriggered: {
+                if (m3Root.sidebarOpen) {
+                    m3SidebarWin.focusActivate()
+                    sbCard.forceActiveFocus()
+                }
+            }
+        }
+
         Component.onCompleted: syncGeo()
         onTargetXChanged: syncGeo()
         onTargetYChanged: syncGeo()
         onTargetWChanged: syncGeo()
         onTargetHChanged: syncGeo()
+        onActiveChanged: {
+            if (active && m3Root.sidebarOpen && m3Root.wifiPwSsid === "")
+                sbCard.forceActiveFocus()
+        }
         onVisibleChanged: {
             if (visible) {
                 syncGeo()
                 focusActivate()
                 sbCard.forceActiveFocus()
+                sbFocusTimer.restart()
             } else {
+                sbFocusTimer.stop()
                 m3Root.sidebarSubView = ""
                 m3Root.wifiPwSsid = ""
                 m3Root.wifiPwVisible = false
                 wifiPwInput.text = ""
             }
         }
-        onWindowDeactivated: m3Root.sidebarOpen = false
+        onWindowDeactivated: {
+            if (m3Root.sidebarOpen) {
+                m3Root.sidebarClosedAt = Date.now()
+                m3Root.sidebarOpen = false
+            }
+        }
 
         Rectangle {
             id: sbCard
@@ -1032,6 +1211,7 @@ Item {
                 } else if (m3Root.sidebarSubView !== "") {
                     m3Root.sidebarSubView = ""
                 } else {
+                    m3Root.sidebarClosedAt = Date.now()
                     m3Root.sidebarOpen = false
                 }
             }
@@ -1041,7 +1221,6 @@ Item {
                 visible: m3Root.sidebarSubView === ""
                 anchors.fill: parent; anchors.margins: 16; spacing: 12
 
-                // Header
                 Item {
                     width: parent.width; height: 36
                     Row {
@@ -1077,9 +1256,10 @@ Item {
                                         const act = modelData.act
                                         Qt.callLater(() => {
                                             if (act === "widgets") m3Root.sidebarSubView = "widgets"
-                                            else if (act === "lock") { m3Root.sidebarOpen = false; SystemControl.lockScreen() }
-                                            else if (act === "sleep") { m3Root.sidebarOpen = false; SystemControl.sleepPc() }
+                                            else if (act === "lock") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.lockScreen() }
+                                            else if (act === "sleep") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.sleepPc() }
                                             else if (act === "settings" && m3Root.themeHub) {
+                                                m3Root.sidebarClosedAt = Date.now()
                                                 m3Root.sidebarOpen = false
                                                 m3Root.themeHub.landscapeContent = "settings"
                                                 m3Root.themeHub.settingsSection = "presets"
@@ -1094,11 +1274,10 @@ Item {
                     }
                 }
 
-                // 3x2 Quick Toggles (Wi-Fi & BT open full sub-panels on card tap or right arrow; icon toggles directly!)
+                // 3x2 Quick Toggles
                 Grid {
                     width: parent.width; columns: 2; columnSpacing: 8; rowSpacing: 8
 
-                    // Wi-Fi Pill
                     Rectangle {
                         width: (sbCard.width - 40) * 0.5; height: 54; radius: 27
                         color: SystemControl.wifiEnabled ? m3Root.colPrimary : m3Root.colLayer2
@@ -1120,14 +1299,10 @@ Item {
                         MouseArea {
                             anchors.left: parent.left; anchors.leftMargin: 44; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => {
-                                m3Root.sidebarSubView = "wifi"
-                                SystemControl.refreshWifi()
-                            })
+                            onClicked: Qt.callLater(() => { m3Root.sidebarSubView = "wifi"; SystemControl.refreshWifi() })
                         }
                     }
 
-                    // Bluetooth Pill
                     Rectangle {
                         width: (sbCard.width - 40) * 0.5; height: 54; radius: 27
                         color: SystemControl.bluetoothEnabled ? m3Root.colPrimary : m3Root.colLayer2
@@ -1149,14 +1324,10 @@ Item {
                         MouseArea {
                             anchors.left: parent.left; anchors.leftMargin: 44; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => {
-                                m3Root.sidebarSubView = "bt"
-                                SystemControl.refreshBluetooth()
-                            })
+                            onClicked: Qt.callLater(() => { m3Root.sidebarSubView = "bt"; SystemControl.refreshBluetooth() })
                         }
                     }
 
-                    // Mute / Dock Auto-Hide / Widgets / Theme Pills
                     Repeater {
                         model: [
                             { id: "mute", title: AudioService.masterMuted ? "Muted" : "Sound On", sub: AudioService.masterVolume + "%", active: !AudioService.masterMuted, ic: AudioService.masterMuted ? "volume_off" : "volume_up", fb: "🔊" },
@@ -1237,7 +1408,7 @@ Item {
                     }
                 }
 
-                // Quick Preset Switcher (smooth transition veil!)
+                // Quick Preset Switcher (smooth crossfade veil!)
                 Row {
                     width: parent.width; height: 34; spacing: 6
                     Repeater {
@@ -1258,9 +1429,9 @@ Item {
                             MouseArea {
                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    const pid = modelData.id
-                                    const inst = isInst
+                                    const pid = modelData.id; const inst = isInst
                                     Qt.callLater(() => {
+                                        m3Root.sidebarClosedAt = Date.now()
                                         m3Root.sidebarOpen = false
                                         if (inst && m3Root.themeHub) {
                                             m3Root.themeHub.requestPresetSwitch(pid)
@@ -1310,7 +1481,7 @@ Item {
                 }
             }
 
-            // ---- SUB-VIEW: WI-FI NETWORKS & PASSWORD ENTRY ----
+            // ---- SUB-VIEW: WI-FI NETWORKS & PASSWORD ----
             Column {
                 visible: m3Root.sidebarSubView === "wifi"
                 anchors.fill: parent; anchors.margins: 16; spacing: 12
@@ -1338,15 +1509,13 @@ Item {
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.refreshWifi()) }
                         }
                         Rectangle {
-                            width: 58; height: 34; radius: 17
-                            color: SystemControl.wifiEnabled ? m3Root.colPrimary : m3Root.colLayer2
+                            width: 58; height: 34; radius: 17; color: SystemControl.wifiEnabled ? m3Root.colPrimary : m3Root.colLayer2
                             Text { anchors.centerIn: parent; text: SystemControl.wifiEnabled ? "ON" : "OFF"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Black; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleWifi()) }
                         }
                     }
                 }
 
-                // Inline Password Input Card + Show/Hide Eye Button
                 Rectangle {
                     visible: m3Root.wifiPwSsid !== ""
                     width: parent.width; height: 112; radius: 18
@@ -1354,11 +1523,7 @@ Item {
 
                     Column {
                         anchors.fill: parent; anchors.margins: 12; spacing: 8
-                        Text {
-                            width: parent.width; elide: Text.ElideRight
-                            text: "Enter password for \"" + m3Root.wifiPwSsid + "\""
-                            font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0
-                        }
+                        Text { width: parent.width; elide: Text.ElideRight; text: "Enter password for \"" + m3Root.wifiPwSsid + "\""; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
                         Row {
                             width: parent.width; height: 34; spacing: 8
                             Rectangle {
@@ -1371,10 +1536,7 @@ Item {
                                     Keys.onEscapePressed: { m3Root.wifiPwSsid = ""; text = ""; sbCard.forceActiveFocus() }
                                     Keys.onReturnPressed: {
                                         const s = m3Root.wifiPwSsid; const pw = wifiPwInput.text
-                                        if (pw !== "") {
-                                            m3Root.wifiPwSsid = ""; wifiPwInput.text = ""
-                                            Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw))
-                                        }
+                                        if (pw !== "") { m3Root.wifiPwSsid = ""; wifiPwInput.text = ""; Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw)) }
                                     }
                                 }
                                 Rectangle {
@@ -1395,10 +1557,7 @@ Item {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         const s = m3Root.wifiPwSsid; const pw = wifiPwInput.text
-                                        if (pw !== "") {
-                                            m3Root.wifiPwSsid = ""; wifiPwInput.text = ""
-                                            Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw))
-                                        }
+                                        if (pw !== "") { m3Root.wifiPwSsid = ""; wifiPwInput.text = ""; Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw)) }
                                     }
                                 }
                             }
@@ -1411,18 +1570,10 @@ Item {
                     }
                 }
 
-                // Wi-Fi List
                 ListView {
-                    width: parent.width
-                    height: parent.height - (m3Root.wifiPwSsid !== "" ? 172 : 48)
-                    spacing: 6; clip: true
-                    model: SystemControl.wifiNetworks
-                    Text {
-                        visible: SystemControl.wifiNetworks.length === 0
-                        anchors.centerIn: parent
-                        text: SystemControl.wifiScanning ? "Scanning nearby networks..." : "No networks found"
-                        font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1
-                    }
+                    width: parent.width; height: parent.height - (m3Root.wifiPwSsid !== "" ? 172 : 48)
+                    spacing: 6; clip: true; model: SystemControl.wifiNetworks
+                    Text { visible: SystemControl.wifiNetworks.length === 0; anchors.centerIn: parent; text: SystemControl.wifiScanning ? "Scanning nearby networks..." : "No networks found"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
                     delegate: Rectangle {
                         required property var modelData
                         readonly property bool isConnecting: SystemControl.wifiConnectingSsid !== "" && (SystemControl.wifiConnectingSsid === modelData.ssid || SystemControl.wifiConnectingSsid === modelData.profile)
@@ -1441,33 +1592,20 @@ Item {
                             }
                             Text { visible: !!modelData.secured; anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? "lock" : "🔒"; color: m3Root.colOnLayer1 }
                             Rectangle {
-                                visible: !!(modelData.profile && modelData.profile !== "")
-                                anchors.verticalCenter: parent.verticalCenter; width: 52; height: 26; radius: 13; color: m3Root.colLayer0
+                                visible: !!(modelData.profile && modelData.profile !== ""); anchors.verticalCenter: parent.verticalCenter; width: 52; height: 26; radius: 13; color: m3Root.colLayer0
                                 Text { anchors.centerIn: parent; text: "Forget"; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: "#FFB4AB" }
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: { const prof = modelData.profile; Qt.callLater(() => SystemControl.forgetWifi(prof)) }
-                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { const prof = modelData.profile; Qt.callLater(() => SystemControl.forgetWifi(prof)) } }
                             }
                         }
                         MouseArea {
                             anchors.left: parent.left; anchors.right: parent.right; anchors.rightMargin: (modelData.profile && modelData.profile !== "") ? 64 : 0
-                            anchors.top: parent.top; anchors.bottom: parent.bottom
-                            cursorShape: Qt.PointingHandCursor
+                            anchors.top: parent.top; anchors.bottom: parent.bottom; cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                const ssid = modelData.ssid || ""
-                                const prof = modelData.profile || ""
-                                const sec = !!modelData.secured
-                                const conn = !!modelData.connected
+                                const ssid = modelData.ssid || ""; const prof = modelData.profile || ""
+                                const sec = !!modelData.secured; const conn = !!modelData.connected
                                 if (conn) return
-                                if (!sec || prof !== "") {
-                                    Qt.callLater(() => SystemControl.connectWifi(prof !== "" ? prof : ssid))
-                                } else {
-                                    m3Root.wifiPwSsid = ssid
-                                    m3Root.wifiPwVisible = false
-                                    wifiPwInput.text = ""
-                                    wifiPwInput.forceActiveFocus()
-                                }
+                                if (!sec || prof !== "") { Qt.callLater(() => SystemControl.connectWifi(prof !== "" ? prof : ssid)) }
+                                else { m3Root.wifiPwSsid = ssid; m3Root.wifiPwVisible = false; wifiPwInput.text = ""; wifiPwInput.forceActiveFocus() }
                             }
                         }
                     }
@@ -1515,20 +1653,12 @@ Item {
                 }
 
                 ListView {
-                    width: parent.width; height: parent.height - 48; spacing: 6; clip: true
-                    model: SystemControl.bluetoothDevices
-                    Text {
-                        visible: SystemControl.bluetoothDevices.length === 0
-                        anchors.centerIn: parent
-                        text: SystemControl.btScanning ? "Scanning Bluetooth devices..." : "No paired devices · Click + to pair"
-                        font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1
-                    }
+                    width: parent.width; height: parent.height - 48; spacing: 6; clip: true; model: SystemControl.bluetoothDevices
+                    Text { visible: SystemControl.bluetoothDevices.length === 0; anchors.centerIn: parent; text: SystemControl.btScanning ? "Scanning Bluetooth devices..." : "No paired devices · Click + to pair"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
                     delegate: Rectangle {
                         required property var modelData
                         readonly property bool canForget: (modelData.paired !== false) && !!(modelData.address && modelData.address !== "" && modelData.address !== "0")
-                        width: ListView.view.width; height: 50; radius: 16
-                        color: modelData.connected ? m3Root.colPrimaryContainer : m3Root.colLayer2
-
+                        width: ListView.view.width; height: 50; radius: 16; color: modelData.connected ? m3Root.colPrimaryContainer : m3Root.colLayer2
                         Row {
                             anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
                             Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 19; text: m3Root.hasSymbols ? "bluetooth" : "ᛒ"; color: modelData.connected ? m3Root.colPrimary : m3Root.colOnLayer0 }
@@ -1540,10 +1670,7 @@ Item {
                             Rectangle {
                                 visible: canForget; anchors.verticalCenter: parent.verticalCenter; width: 52; height: 26; radius: 13; color: m3Root.colLayer0
                                 Text { anchors.centerIn: parent; text: "Forget"; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: "#FFB4AB" }
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: { const addr = modelData.address; Qt.callLater(() => SystemControl.forgetBluetooth(addr)) }
-                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { const addr = modelData.address; Qt.callLater(() => SystemControl.forgetBluetooth(addr)) } }
                             }
                         }
                     }
@@ -1567,8 +1694,7 @@ Item {
                         Text { anchors.verticalCenter: parent.verticalCenter; text: "Desktop Widgets"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
                     }
                     Rectangle {
-                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        width: 112; height: 34; radius: 17; color: m3Root.colPrimaryContainer
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 112; height: 34; radius: 17; color: m3Root.colPrimaryContainer
                         Text { anchors.centerIn: parent; text: "Reset Layout"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.resetWidgetPositions()) }
                     }
@@ -1601,23 +1727,258 @@ Item {
                                     Text { width: parent.width; elide: Text.ElideRight; text: modelData.sub; font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
                                 }
                                 Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 46; height: 26; radius: 13
-                                    color: shown ? m3Root.colPrimary : m3Root.colLayer0
+                                    anchors.verticalCenter: parent.verticalCenter; width: 46; height: 26; radius: 13; color: shown ? m3Root.colPrimary : m3Root.colLayer0
                                     Rectangle {
-                                        width: 20; height: 20; radius: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        x: shown ? 23 : 3
-                                        color: shown ? m3Root.colOnPrimary : m3Root.colOnLayer1
+                                        width: 20; height: 20; radius: 10; anchors.verticalCenter: parent.verticalCenter
+                                        x: shown ? 23 : 3; color: shown ? m3Root.colOnPrimary : m3Root.colOnLayer1
                                         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                     }
                                 }
                             }
                             MouseArea {
                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: { const k = modelData.key; const nextOn = !shown; Qt.callLater(() => m3Root.setWidgetShown(k, nextOn)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 10. TopBar Weather Forecast Popup
+    // =========================================================================
+    PanelWindow {
+        id: m3WeatherPopupWin
+        property real popK: m3Root.weatherPopupOpen ? 1.0 : 0.0
+        Behavior on popK { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        visible: (m3Root.weatherPopupOpen || popK > 0.01) && !m3Root.fullscreenActive
+        readonly property int targetW: 344
+        readonly property int targetH: 292
+        readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
+        readonly property int targetY: 46
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
+        blurBehind: false; color: "transparent"
+
+        Timer {
+            id: wthFocusTimer; interval: 45; repeat: false
+            onTriggered: { if (m3Root.weatherPopupOpen) { m3WeatherPopupWin.focusActivate(); wthPopCard.forceActiveFocus() } }
+        }
+
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onVisibleChanged: {
+            if (visible) { syncGeo(); focusActivate(); wthPopCard.forceActiveFocus(); wthFocusTimer.restart() }
+            else wthFocusTimer.stop()
+        }
+        onWindowDeactivated: {
+            if (m3Root.weatherPopupOpen) { m3Root.weatherClosedAt = Date.now(); m3Root.weatherPopupOpen = false }
+        }
+
+        Rectangle {
+            id: wthPopCard
+            focus: true
+            anchors.fill: parent; radius: 26
+            color: m3Root.colLayer1; border.width: 1; border.color: m3Root.colLayer0Border
+            opacity: m3WeatherPopupWin.popK; scale: 0.94 + 0.06 * m3WeatherPopupWin.popK
+            Keys.onEscapePressed: { m3Root.weatherClosedAt = Date.now(); m3Root.weatherPopupOpen = false }
+
+            Column {
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 58
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 12
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: WeatherService.ready ? (WeatherService.temperature + "°C") : "--°C"; font.family: "Segoe UI"; font.pixelSize: 40; font.weight: Font.Bold; color: m3Root.colPrimary }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter; spacing: 1
+                            Text { text: WeatherService.conditionText || "Weather"; font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Text { text: (WeatherService.city || "--") + " · Feels like " + WeatherService.feelsLike + "°C"; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1 }
+                        }
+                    }
+                    MaterialShapeBadge {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        shape: MaterialShape.Shape.Cookie12Sided; color: m3Root.colPrimary; colSymbol: m3Root.colOnPrimary
+                        iconFontFamily: m3Root.iconFontName; useSymbolFont: m3Root.hasSymbols
+                        text: m3Root.wmoSymbol(WeatherService.weatherCode); fallbackText: "☁"
+                        iconSize: 24; padding: 10; implicitWidth: 46; implicitHeight: 46
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => WeatherService.refresh()) }
+                    }
+                }
+
+                Grid {
+                    width: parent.width; columns: 2; columnSpacing: 8; rowSpacing: 8
+                    Repeater {
+                        model: [
+                            { ic: "humidity_mid", fb: "💧", k: "Humidity", v: WeatherService.humidity + "%" },
+                            { ic: "rainy",        fb: "🌧", k: "Precipitation", v: WeatherService.precipProb + "%" },
+                            { ic: "air",          fb: "💨", k: "Wind", v: WeatherService.windSpeed + " km/h " + (WeatherService.windDirection || "") },
+                            { ic: "wb_sunny",     fb: "☀",  k: "UV Index · H/L", v: "UV " + WeatherService.uvIndex + " · " + WeatherService.tempMax + "°/" + WeatherService.tempMin + "°" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: (wthPopCard.width - 40) * 0.5; height: 58; radius: 18; color: m3Root.colLayer2
+                            Row {
+                                anchors.fill: parent; anchors.margins: 10; spacing: 8
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: m3Root.colPrimary }
+                                Column {
+                                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - 30; spacing: 1
+                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.k; font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.v; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width; height: 40; radius: 20; color: m3Root.colPrimaryContainer
+                    Item {
+                        anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16
+                        Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "☀ Sunrise " + (WeatherService.sunrise || "--") + "   🌙 Sunset " + (WeatherService.sunset || "--"); font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: m3Root.colOnPrimaryContainer }
+                        Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "↻ Refresh"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary }
+                    }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => WeatherService.refresh()) }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 11. TopBar Interactive Calendar Popup
+    // =========================================================================
+    PanelWindow {
+        id: m3CalendarPopupWin
+        property real popK: m3Root.calendarPopupOpen ? 1.0 : 0.0
+        Behavior on popK { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        visible: (m3Root.calendarPopupOpen || popK > 0.01) && !m3Root.fullscreenActive
+        readonly property int targetW: 328
+        readonly property int targetH: 368
+        readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
+        readonly property int targetY: 46
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
+        blurBehind: false; color: "transparent"
+
+        Timer {
+            id: calFocusTimer; interval: 45; repeat: false
+            onTriggered: { if (m3Root.calendarPopupOpen) { m3CalendarPopupWin.focusActivate(); calPopCard.forceActiveFocus() } }
+        }
+
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onVisibleChanged: {
+            if (visible) { syncGeo(); focusActivate(); calPopCard.forceActiveFocus(); calFocusTimer.restart() }
+            else calFocusTimer.stop()
+        }
+        onWindowDeactivated: {
+            if (m3Root.calendarPopupOpen) { m3Root.calendarClosedAt = Date.now(); m3Root.calendarPopupOpen = false }
+        }
+
+        Rectangle {
+            id: calPopCard
+            focus: true
+            anchors.fill: parent; radius: 26
+            color: m3Root.colLayer1; border.width: 1; border.color: m3Root.colLayer0Border
+            opacity: m3CalendarPopupWin.popK; scale: 0.94 + 0.06 * m3CalendarPopupWin.popK
+            Keys.onEscapePressed: { m3Root.calendarClosedAt = Date.now(); m3Root.calendarPopupOpen = false }
+
+            Column {
+                anchors.fill: parent; anchors.margins: 16; spacing: 10
+
+                // Live Clock + Date Header
+                Column {
+                    width: parent.width; spacing: 1
+                    Text { text: Qt.formatDateTime(m3Root.nowDate, "hh:mm:ss AP"); font.family: "Segoe UI"; font.pixelSize: 26; font.weight: Font.Bold; color: m3Root.colPrimary }
+                    Text { text: Qt.formatDateTime(m3Root.nowDate, "dddd, MMMM d, yyyy"); font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1 }
+                }
+
+                // Month Navigation
+                Item {
+                    width: parent.width; height: 32
+                    Text {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                        text: Qt.formatDate(new Date(m3Root.calYear, m3Root.calMonth, 1), "MMMM yyyy")
+                        font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: m3Root.colOnLayer0
+                    }
+                    Row {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                        Rectangle {
+                            width: 28; height: 28; radius: 14; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; text: "‹"; font.pixelSize: 16; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    const k = modelData.key; const nextOn = !shown
-                                    Qt.callLater(() => m3Root.setWidgetShown(k, nextOn))
+                                    if (m3Root.calMonth === 0) { m3Root.calMonth = 11; m3Root.calYear -= 1 }
+                                    else m3Root.calMonth -= 1
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 48; height: 28; radius: 14; color: m3Root.colPrimaryContainer
+                            Text { anchors.centerIn: parent; text: "Today"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: { m3Root.calYear = m3Root.nowDate.getFullYear(); m3Root.calMonth = m3Root.nowDate.getMonth() }
+                            }
+                        }
+                        Rectangle {
+                            width: 28; height: 28; radius: 14; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; text: "›"; font.pixelSize: 16; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (m3Root.calMonth === 11) { m3Root.calMonth = 0; m3Root.calYear += 1 }
+                                    else m3Root.calMonth += 1
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Weekday Labels
+                Row {
+                    width: parent.width; height: 22
+                    Repeater {
+                        model: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+                        delegate: Text {
+                            required property string modelData
+                            width: (calPopCard.width - 32) / 7
+                            horizontalAlignment: Text.AlignHCenter
+                            text: modelData; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary
+                        }
+                    }
+                }
+
+                // 6x7 Month Grid
+                Grid {
+                    width: parent.width; columns: 7; rowSpacing: 4
+                    Repeater {
+                        model: m3Root.calendarCells
+                        delegate: Item {
+                            required property var modelData
+                            width: (calPopCard.width - 32) / 7
+                            height: 32
+                            Rectangle {
+                                anchors.centerIn: parent; width: 30; height: 30; radius: 15
+                                color: modelData.isToday ? m3Root.colPrimary : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.day
+                                    font.family: "Segoe UI"; font.pixelSize: 12; font.weight: modelData.isToday ? Font.Black : Font.DemiBold
+                                    color: modelData.isToday ? m3Root.colOnPrimary : m3Root.colOnLayer0
+                                    opacity: modelData.isToday ? 1.0 : (modelData.curMonth ? 0.92 : 0.30)
                                 }
                             }
                         }
@@ -1628,7 +1989,7 @@ Item {
     }
 
     // =========================================================================
-    // 10. Silky Smooth M3 Search Overview / Virtualized GridView (Alt+Space)
+    // 12. Silky Smooth M3 Search Overview / Virtualized GridView (Alt+Space)
     // =========================================================================
     PanelWindow {
         id: m3LauncherWin
@@ -1649,23 +2010,46 @@ Item {
         blurBehind: false
         color: "transparent"
 
+        Timer {
+            id: launcherFocusTimer
+            interval: 45
+            repeat: false
+            onTriggered: {
+                if (m3Root.launcherOpen) {
+                    m3LauncherWin.focusActivate()
+                    m3SearchInput.forceActiveFocus()
+                }
+            }
+        }
+
         Component.onCompleted: syncGeo()
         onTargetXChanged: syncGeo()
         onTargetYChanged: syncGeo()
         onTargetWChanged: syncGeo()
         onTargetHChanged: syncGeo()
+        onActiveChanged: {
+            if (active && m3Root.launcherOpen)
+                m3SearchInput.forceActiveFocus()
+        }
         onVisibleChanged: {
             if (visible) {
                 syncGeo()
                 focusActivate()
                 m3SearchInput.forceActiveFocus()
+                launcherFocusTimer.restart()
             } else {
+                launcherFocusTimer.stop()
                 searchDebounceTimer.stop()
                 m3SearchInput.text = ""
                 m3Root.launcherQuery = ""
             }
         }
-        onWindowDeactivated: m3Root.launcherOpen = false
+        onWindowDeactivated: {
+            if (m3Root.launcherOpen) {
+                m3Root.launcherClosedAt = Date.now()
+                m3Root.launcherOpen = false
+            }
+        }
 
         Timer {
             id: searchDebounceTimer
@@ -1698,7 +2082,10 @@ Item {
                             width: parent.width - 42
                             font.family: "Segoe UI"; font.pixelSize: 15; color: m3Root.colOnLayer0
                             onTextChanged: searchDebounceTimer.restart()
-                            Keys.onEscapePressed: m3Root.launcherOpen = false
+                            Keys.onEscapePressed: {
+                                m3Root.launcherClosedAt = Date.now()
+                                m3Root.launcherOpen = false
+                            }
                             Keys.onReturnPressed: {
                                 searchDebounceTimer.stop()
                                 m3Root.launcherQuery = text
@@ -1706,6 +2093,7 @@ Item {
                                     const first = m3Root.filteredApps[0]
                                     const tgt = first.target || ""; const args = first.args || ""
                                     Qt.callLater(() => {
+                                        m3Root.launcherClosedAt = Date.now()
                                         m3Root.launcherOpen = false
                                         AppLauncher.launch(tgt, args)
                                     })
@@ -1762,6 +2150,7 @@ Item {
                                 onClicked: {
                                     const tgt = modelData.target || ""; const args = modelData.args || ""
                                     Qt.callLater(() => {
+                                        m3Root.launcherClosedAt = Date.now()
                                         m3Root.launcherOpen = false
                                         AppLauncher.launch(tgt, args)
                                     })
