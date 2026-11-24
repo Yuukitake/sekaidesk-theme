@@ -36,6 +36,9 @@ Item {
     property int calYear: (new Date()).getFullYear()
     property int calMonth: (new Date()).getMonth() // 0..11
 
+    property bool wallpaperPickerOpen: false
+    property double wallpaperClosedAt: 0
+
     property int widgetResetGen: 0
     property int widgetVisGen: 0
 
@@ -43,6 +46,7 @@ Item {
         launcherOpen = false
         weatherPopupOpen = false
         calendarPopupOpen = false
+        wallpaperPickerOpen = false
         if (!fromHotkey && !sidebarOpen && (Date.now() - sidebarClosedAt) < 280)
             return
         if (sidebarOpen) {
@@ -57,6 +61,7 @@ Item {
         sidebarOpen = false
         weatherPopupOpen = false
         calendarPopupOpen = false
+        wallpaperPickerOpen = false
         if (!fromHotkey && !launcherOpen && (Date.now() - launcherClosedAt) < 280)
             return
         if (launcherOpen) {
@@ -71,6 +76,7 @@ Item {
         sidebarOpen = false
         launcherOpen = false
         calendarPopupOpen = false
+        wallpaperPickerOpen = false
         if (!weatherPopupOpen && (Date.now() - weatherClosedAt) < 280)
             return
         if (weatherPopupOpen) {
@@ -86,6 +92,7 @@ Item {
         sidebarOpen = false
         launcherOpen = false
         weatherPopupOpen = false
+        wallpaperPickerOpen = false
         if (!calendarPopupOpen && (Date.now() - calendarClosedAt) < 280)
             return
         if (calendarPopupOpen) {
@@ -95,6 +102,22 @@ Item {
             calYear = nowDate.getFullYear()
             calMonth = nowDate.getMonth()
             calendarPopupOpen = true
+        }
+    }
+
+    function toggleWallpaperPicker() {
+        sidebarOpen = false
+        launcherOpen = false
+        weatherPopupOpen = false
+        calendarPopupOpen = false
+        if (!wallpaperPickerOpen && (Date.now() - wallpaperClosedAt) < 280)
+            return
+        if (wallpaperPickerOpen) {
+            wallpaperClosedAt = Date.now()
+            wallpaperPickerOpen = false
+        } else {
+            WallpaperService.refresh()
+            wallpaperPickerOpen = true
         }
     }
 
@@ -246,11 +269,6 @@ Item {
             }
         }
         return list
-    }
-
-    readonly property var topRunningWindows: {
-        const arr = WindowTracker.runningApps || []
-        return arr.slice(0, 7)
     }
 
     readonly property var filteredApps: {
@@ -536,45 +554,57 @@ Item {
 
                     Rectangle { width: 1; height: 14; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
-                    // Live Running Windows Switcher (Replaces static fake dots!)
+                    // Material 3 Workspace Switcher Dots (end4-pC style + real Windows Virtual Desktops)
                     Row {
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: 4
-
-                        Rectangle {
-                            visible: m3Root.topRunningWindows.length === 0
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 18; height: 14; radius: 7
-                            color: m3Root.colPrimary
-                            Text { anchors.centerIn: parent; text: "•"; font.pixelSize: 11; font.weight: Font.Black; color: m3Root.colOnPrimary }
-                        }
+                        spacing: 6
 
                         Repeater {
-                            model: m3Root.topRunningWindows
-                            delegate: Rectangle {
-                                required property var modelData
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: modelData.active ? 28 : 22
-                                height: 22; radius: 11
-                                color: modelData.active
-                                       ? m3Root.colPrimary
-                                       : (m3WinSwMa.containsMouse ? m3Root.colPrimaryContainer : Qt.rgba(1, 1, 1, 0.14))
+                            model: Math.max(5, WindowTracker.virtualDesktopCount)
+                            delegate: Item {
+                                required property int index
+                                readonly property bool isActive: index === WindowTracker.currentVirtualDesktop
+                                readonly property bool exists: index < WindowTracker.virtualDesktopCount
 
-                                Image {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: isActive ? 24 : 10
+                                height: 18
+                                Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                Rectangle {
                                     anchors.centerIn: parent
-                                    width: 14; height: 14
-                                    asynchronous: true; cache: true; smooth: true; mipmap: true
-                                    source: modelData.target ? ("image://winicon/" + encodeURIComponent(modelData.target)) : ""
-                                    opacity: modelData.minimized ? 0.55 : 1.0
+                                    width: parent.isActive ? 24 : (parent.exists ? 10 : 8)
+                                    height: parent.isActive ? 18 : (parent.exists ? 10 : 8)
+                                    radius: height * 0.5
+                                    color: parent.isActive
+                                           ? m3Root.colPrimary
+                                           : (parent.exists
+                                              ? Qt.rgba(m3Root.colPrimary.r, m3Root.colPrimary.g, m3Root.colPrimary.b, m3WsMa.containsMouse ? 0.85 : 0.55)
+                                              : Qt.rgba(1, 1, 1, m3WsMa.containsMouse ? 0.45 : 0.22))
+                                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                    Text {
+                                        visible: parent.parent.isActive
+                                        anchors.centerIn: parent
+                                        text: String(index + 1)
+                                        font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold
+                                        color: m3Root.colOnPrimary
+                                    }
                                 }
 
                                 MouseArea {
-                                    id: m3WinSwMa
-                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        const tgt = modelData.target || ""
-                                        if (tgt !== "")
-                                            Qt.callLater(() => WindowTracker.activateOrToggle(tgt))
+                                    id: m3WsMa
+                                    anchors.fill: parent
+                                    anchors.margins: -3
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: mouse => {
+                                        if (mouse.button === Qt.RightButton)
+                                            Qt.callLater(() => WindowTracker.openTaskView())
+                                        else
+                                            Qt.callLater(() => WindowTracker.switchVirtualDesktop(index))
                                     }
                                 }
                             }
@@ -626,6 +656,13 @@ Item {
                             Text { id: m3BarMediaLbl; anchors.verticalCenter: parent.verticalCenter; width: Math.min(145, implicitWidth); elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "No media"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold; color: m3Root.colOnLayer1 }
                         }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.playPause()) }
+                    }
+
+                    Rectangle {
+                        height: 22; width: 26; radius: 11
+                        color: (m3Root.wallpaperPickerOpen || m3BarWpMa.containsMouse) ? m3Root.colPrimary : m3Root.colSurfaceVariant
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "wallpaper" : "🖼"; color: (m3Root.wallpaperPickerOpen || m3BarWpMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        MouseArea { id: m3BarWpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleWallpaperPicker()) }
                     }
 
                     Rectangle {
@@ -1249,6 +1286,7 @@ Item {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
                         Repeater {
                             model: [
+                                { act: "wallpaper", ic: "wallpaper", fb: "🖼" },
                                 { act: "widgets", ic: "widgets", fb: "⊞" },
                                 { act: "settings", ic: "settings", fb: "⚙" },
                                 { act: "lock", ic: "lock", fb: "🔒" },
@@ -1264,7 +1302,8 @@ Item {
                                     onClicked: {
                                         const act = modelData.act
                                         Qt.callLater(() => {
-                                            if (act === "widgets") m3Root.sidebarSubView = "widgets"
+                                            if (act === "wallpaper") { m3Root.toggleWallpaperPicker() }
+                                            else if (act === "widgets") m3Root.sidebarSubView = "widgets"
                                             else if (act === "lock") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.lockScreen() }
                                             else if (act === "sleep") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.sleepPc() }
                                             else if (act === "settings" && m3Root.themeHub) {
@@ -2172,6 +2211,230 @@ Item {
                                         m3Root.launcherOpen = false
                                         AppLauncher.launch(tgt, args)
                                     })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 11. Material 3 Wallpaper Picker (GridView + Folder + Random + Apply)
+    // =========================================================================
+    PanelWindow {
+        id: m3WallpaperWin
+        visible: m3Root.wallpaperPickerOpen
+        readonly property int targetW: 740
+        readonly property int targetH: 480
+        readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
+        readonly property int targetY: Math.round((m3Root.sh - targetH) * 0.48)
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
+        blurBehind: false
+        color: "transparent"
+
+        Timer {
+            id: wpFocusTimer
+            interval: 45
+            repeat: false
+            onTriggered: {
+                if (m3Root.wallpaperPickerOpen) {
+                    m3WallpaperWin.focusActivate()
+                    wpCard.forceActiveFocus()
+                    wpFocusRetryTimer.restart()
+                }
+            }
+        }
+        Timer {
+            id: wpFocusRetryTimer
+            interval: 120
+            repeat: false
+            onTriggered: {
+                if (m3Root.wallpaperPickerOpen && !wpCard.activeFocus) {
+                    m3WallpaperWin.focusActivate()
+                    wpCard.forceActiveFocus()
+                }
+            }
+        }
+
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: {
+            if (visible) {
+                syncGeo()
+                focusActivate()
+                wpCard.forceActiveFocus()
+                wpFocusTimer.restart()
+            } else {
+                wpFocusTimer.stop()
+                wpFocusRetryTimer.stop()
+            }
+        }
+        onWindowDeactivated: {
+            if (m3Root.wallpaperPickerOpen) {
+                m3Root.wallpaperClosedAt = Date.now()
+                m3Root.wallpaperPickerOpen = false
+            }
+        }
+
+        Rectangle {
+            id: wpCard
+            focus: true
+            anchors.fill: parent
+            radius: 28
+            color: m3Root.colLayer1
+            border.width: 1; border.color: m3Root.colLayer0Border
+            clip: true
+
+            Keys.onEscapePressed: {
+                m3Root.wallpaperClosedAt = Date.now()
+                m3Root.wallpaperPickerOpen = false
+            }
+
+            Column {
+                anchors.fill: parent; anchors.margins: 18; spacing: 14
+
+                Item {
+                    width: parent.width; height: 38
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colPrimaryContainer
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "wallpaper" : "🖼"; color: m3Root.colPrimary }
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter; spacing: -1
+                            Text { text: "Wallpapers"; font.family: "Segoe UI"; font.pixelSize: 16; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Text {
+                                width: 320; elide: Text.ElideMiddle
+                                text: (WallpaperService.directoryShort || "Pictures") + " • " + ((WallpaperService.wallpapers || []).length) + " images"
+                                font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1
+                            }
+                        }
+                    }
+
+                    Row {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                        Repeater {
+                            model: [
+                                { act: "folder", ic: "folder_open", fb: "📁" },
+                                { act: "random", ic: "shuffle", fb: "🔀" },
+                                { act: "refresh", ic: "refresh", fb: "↻" },
+                                { act: "close", ic: "close", fb: "✕" }
+                            ]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 32; height: 32; radius: 16
+                                color: wpHdrMa.containsMouse ? m3Root.colPrimaryContainer : m3Root.colLayer2
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 16; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: m3Root.colOnLayer0 }
+                                MouseArea {
+                                    id: wpHdrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const act = modelData.act
+                                        Qt.callLater(() => {
+                                            if (act === "folder") WallpaperService.pickFolder()
+                                            else if (act === "random") WallpaperService.nextRandomWallpaper()
+                                            else if (act === "refresh") WallpaperService.refresh()
+                                            else if (act === "close") { m3Root.wallpaperClosedAt = Date.now(); m3Root.wallpaperPickerOpen = false }
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: parent.height - 52
+
+                    Column {
+                        visible: (WallpaperService.wallpapers || []).length === 0
+                        anchors.centerIn: parent; spacing: 12
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; font.family: m3Root.iconFontName; font.pixelSize: 38; text: m3Root.hasSymbols ? "photo_library" : "🖼"; color: m3Root.colOnLayer1; opacity: 0.7 }
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "No wallpapers found in this folder"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 146; height: 36; radius: 18
+                            color: m3Root.colPrimary
+                            Text { anchors.centerIn: parent; text: "Choose Folder"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => WallpaperService.pickFolder()) }
+                        }
+                    }
+
+                    GridView {
+                        id: m3WpGridView
+                        visible: (WallpaperService.wallpapers || []).length > 0
+                        anchors.fill: parent
+                        cellWidth: 230
+                        cellHeight: 138
+                        cacheBuffer: 420
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: WallpaperService.wallpapers || []
+
+                        delegate: Item {
+                            required property var modelData
+                            readonly property bool isCurrent: WallpaperService.currentWallpaper === modelData.path
+                            width: m3WpGridView.cellWidth
+                            height: m3WpGridView.cellHeight
+
+                            Rectangle {
+                                anchors.fill: parent; anchors.margins: 5; radius: 16
+                                color: m3Root.colLayer2
+                                border.width: isCurrent ? 3 : (wpTileMa.containsMouse ? 2 : 1)
+                                border.color: isCurrent ? m3Root.colPrimary : (wpTileMa.containsMouse ? m3Root.colSecondary : m3Root.colLayer0Border)
+                                clip: true
+
+                                Image {
+                                    anchors.fill: parent
+                                    source: modelData.fileUrl || ""
+                                    sourceSize: Qt.size(280, 160)
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                    smooth: true
+                                }
+
+                                Rectangle {
+                                    anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                                    height: 34
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: "transparent" }
+                                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.78) }
+                                    }
+                                    Text {
+                                        anchors { left: parent.left; leftMargin: 10; right: parent.right; rightMargin: 10; bottom: parent.bottom; bottomMargin: 6 }
+                                        elide: Text.ElideRight
+                                        text: modelData.name || ""
+                                        font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold
+                                        color: "#FFFFFF"
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: isCurrent
+                                    anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 8
+                                    width: 24; height: 24; radius: 12
+                                    color: m3Root.colPrimary
+                                    Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? "check" : "✓"; color: m3Root.colOnPrimary }
+                                }
+
+                                MouseArea {
+                                    id: wpTileMa
+                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const p = modelData.path || ""
+                                        if (p !== "")
+                                            Qt.callLater(() => WallpaperService.requestWallpaperChange(p))
+                                    }
                                 }
                             }
                         }
