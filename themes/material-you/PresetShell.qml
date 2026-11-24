@@ -28,17 +28,33 @@ Item {
     }
 
     property bool sidebarOpen: false
+    property string sidebarSubView: "" // "" | "wifi" | "bt" | "widgets"
+    property string wifiPwSsid: ""
+    property bool wifiPwVisible: false
     property bool launcherOpen: false
     property string launcherQuery: ""
     property int widgetResetGen: 0
+    property int widgetVisGen: 0
+
+    function isWidgetShown(key) {
+        const _v = widgetVisGen
+        return ConfigStore.boolValue("m3.widget." + key + ".visible", true)
+    }
+
+    function setWidgetShown(key, on) {
+        ConfigStore.set("m3.widget." + key + ".visible", !!on)
+        widgetVisGen += 1
+    }
 
     function resetWidgetPositions() {
         const keys = ["userCard", "worldClock", "digitalClock", "media", "weather", "resources"]
         for (let i = 0; i < keys.length; ++i) {
             ConfigStore.set("m3.widget." + keys[i] + ".x", -9999)
             ConfigStore.set("m3.widget." + keys[i] + ".y", -9999)
+            ConfigStore.set("m3.widget." + keys[i] + ".visible", true)
         }
         widgetResetGen += 1
+        widgetVisGen += 1
     }
 
     readonly property int sw: (themeHub && themeHub.screenW > 0) ? themeHub.screenW : 1920
@@ -61,11 +77,11 @@ Item {
     readonly property real tertHue: (seedHue + 0.14) % 1.0
     readonly property real seedSat: Math.max(0.28, Math.min(0.68, seedColor.hslSaturation))
 
-    readonly property color colLayer0: Qt.hsla(seedHue, seedSat * 0.25, 0.09, 0.88)
+    readonly property color colLayer0: Qt.hsla(seedHue, seedSat * 0.25, 0.09, 0.90)
     readonly property color colLayer0Clear: Qt.hsla(seedHue, seedSat * 0.26, 0.09, 0.62)
     readonly property color colLayer0Border: Qt.hsla(seedHue, seedSat * 0.28, 0.42, 0.36)
-    readonly property color colLayer1: Qt.hsla(seedHue, seedSat * 0.28, 0.14, 0.92)
-    readonly property color colLayer2: Qt.hsla(seedHue, seedSat * 0.30, 0.19, 0.94)
+    readonly property color colLayer1: Qt.hsla(seedHue, seedSat * 0.28, 0.14, 0.94)
+    readonly property color colLayer2: Qt.hsla(seedHue, seedSat * 0.30, 0.19, 0.95)
     readonly property color colOnLayer0: Qt.hsla(seedHue, 0.14, 0.94, 1.0)
     readonly property color colOnLayer1: Qt.hsla(seedHue, 0.16, 0.80, 1.0)
 
@@ -186,7 +202,7 @@ Item {
     }
 
     // =========================================================================
-    // Reusable Draggable Desktop Widget Window (Persists pos to ConfigStore)
+    // Reusable Zero-Lag Draggable Desktop Widget (no x/y binding fight!)
     // =========================================================================
     component M3DraggableWidget: PanelWindow {
         id: dwWin
@@ -198,6 +214,7 @@ Item {
 
         readonly property real k: m3Root.uiScale
         readonly property int resetToken: m3Root.widgetResetGen
+        readonly property bool isShown: m3Root.isWidgetShown(widgetKey)
         readonly property int savedX: {
             const _t = resetToken
             return ConfigStore.intValue("m3.widget." + widgetKey + ".x", -9999)
@@ -218,9 +235,8 @@ Item {
                 setPanelGeometry(targetX, targetY, targetW, targetH)
         }
 
-        visible: !m3Root.fullscreenActive
+        visible: !m3Root.fullscreenActive && isShown
         desktopLayer: true
-        x: targetX; y: targetY; width: targetW; height: targetH
         color: "transparent"
 
         Component.onCompleted: syncGeo()
@@ -239,7 +255,6 @@ Item {
             transformOrigin: Item.TopLeft
             scale: dwWin.k
 
-            // Background native drag surface underneath interactive controls
             MouseArea {
                 id: dwDragMa
                 anchors.fill: parent
@@ -247,7 +262,7 @@ Item {
                 cursorShape: dwWin.draggingNow ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 onPressed: {
                     dwWin.draggingNow = true
-                    dwWin.beginNativeDrag(0, 44, m3Root.sw - dwWin.width, m3Root.sh - dwWin.height - 6)
+                    dwWin.beginNativeDrag(0, 44, m3Root.sw - 40, m3Root.sh - 40)
                 }
                 onPositionChanged: {
                     if (dwWin.draggingNow)
@@ -272,7 +287,7 @@ Item {
     }
 
     // =========================================================================
-    // 1. Clear-Mode Translucent Top Bar (end4-pC Clear Bar — floating pills)
+    // 1. Adaptive Top Bar (Clear Pills on Desktop <-> Solid Bar over App Windows)
     // =========================================================================
     PanelWindow {
         id: m3BarWin
@@ -281,6 +296,12 @@ Item {
         readonly property int targetY: 0
         readonly property int targetW: m3Root.sw
         readonly property int targetH: 40
+
+        readonly property bool barSolid: WindowTracker.desktopOccluded || WindowTracker.topOverlap
+        property real solidK: barSolid ? 1.0 : 0.0
+        Behavior on solidK {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
 
         function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
 
@@ -301,14 +322,26 @@ Item {
         Item {
             anchors.fill: parent
 
-            // Left Floating Pill: System Icons + Active Window
+            // Full-width solid bar backdrop (fades in smoothly when an app is open/occluding desktop)
+            Rectangle {
+                anchors.fill: parent
+                color: m3Root.colLayer0
+                opacity: m3BarWin.solidK
+                Rectangle {
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                    height: 1; color: m3Root.colLayer0Border
+                }
+            }
+
+            // Left Module Cluster
             Rectangle {
                 anchors.left: parent.left; anchors.leftMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 height: 30; width: m3BarLeftRow.implicitWidth + 22
                 radius: 15
-                color: m3Root.colLayer0Clear
-                border.width: 1; border.color: m3Root.colLayer0Border
+                color: Qt.rgba(m3Root.colLayer0Clear.r, m3Root.colLayer0Clear.g, m3Root.colLayer0Clear.b, 0.62 * (1.0 - m3BarWin.solidK))
+                border.width: 1
+                border.color: Qt.rgba(m3Root.colLayer0Border.r, m3Root.colLayer0Border.g, m3Root.colLayer0Border.b, 0.36 * (1.0 - m3BarWin.solidK))
 
                 Row {
                     id: m3BarLeftRow
@@ -320,14 +353,30 @@ Item {
                         font.family: m3Root.iconFontName; font.pixelSize: 15
                         text: m3Root.hasSymbols ? (SystemControl.wifiEnabled ? "wifi" : "wifi_off") : "📶"
                         color: SystemControl.wifiEnabled ? m3Root.colOnLayer0 : m3Root.colOnLayer1
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleWifi()) }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.launcherOpen = false
+                                m3Root.sidebarSubView = "wifi"
+                                m3Root.sidebarOpen = true
+                                SystemControl.refreshWifi()
+                            })
+                        }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         font.family: m3Root.iconFontName; font.pixelSize: 15
                         text: m3Root.hasSymbols ? (SystemControl.bluetoothEnabled ? "bluetooth" : "bluetooth_disabled") : "ᛒ"
                         color: SystemControl.bluetoothEnabled ? m3Root.colPrimary : m3Root.colOnLayer1
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleBluetooth()) }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.launcherOpen = false
+                                m3Root.sidebarSubView = "bt"
+                                m3Root.sidebarOpen = true
+                                SystemControl.refreshBluetooth()
+                            })
+                        }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
@@ -353,13 +402,14 @@ Item {
                 }
             }
 
-            // Center Floating Pill: Weather + Workspace Dots + Date/Clock
+            // Center Module Cluster
             Rectangle {
                 anchors.centerIn: parent
                 height: 30; width: m3BarCenterRow.implicitWidth + 24
                 radius: 15
-                color: m3Root.colLayer0Clear
-                border.width: 1; border.color: m3Root.colLayer0Border
+                color: Qt.rgba(m3Root.colLayer0Clear.r, m3Root.colLayer0Clear.g, m3Root.colLayer0Clear.b, 0.62 * (1.0 - m3BarWin.solidK))
+                border.width: 1
+                border.color: Qt.rgba(m3Root.colLayer0Border.r, m3Root.colLayer0Border.g, m3Root.colLayer0Border.b, 0.36 * (1.0 - m3BarWin.solidK))
 
                 Row {
                     id: m3BarCenterRow
@@ -367,41 +417,22 @@ Item {
                     spacing: 11
 
                     Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 4
+                        anchors.verticalCenter: parent.verticalCenter; spacing: 4
                         visible: WeatherService.ready
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            font.family: m3Root.iconFontName; font.pixelSize: 15
-                            text: m3Root.hasSymbols ? m3Root.wmoSymbol(WeatherService.weatherCode) : "☁"
-                            color: m3Root.colOnLayer0
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: WeatherService.temperature + "°C"
-                            font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
-                            color: m3Root.colOnLayer0
-                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? m3Root.wmoSymbol(WeatherService.weatherCode) : "☁"; color: m3Root.colOnLayer0 }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: WeatherService.temperature + "°C"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: m3Root.colOnLayer0 }
                     }
 
                     Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 5
+                        anchors.verticalCenter: parent.verticalCenter; spacing: 5
                         Repeater {
                             model: 5
                             delegate: Rectangle {
                                 required property int index
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: index === 0 ? 18 : 13
-                                height: 13; radius: 6.5
+                                width: index === 0 ? 18 : 13; height: 13; radius: 6.5
                                 color: index === 0 ? m3Root.colPrimary : Qt.rgba(1, 1, 1, 0.18)
-                                Text {
-                                    visible: index === 0
-                                    anchors.centerIn: parent
-                                    text: "1"
-                                    font.family: "Segoe UI"; font.pixelSize: 9; font.weight: Font.Black
-                                    color: m3Root.colOnPrimary
-                                }
+                                Text { visible: index === 0; anchors.centerIn: parent; text: "1"; font.family: "Segoe UI"; font.pixelSize: 9; font.weight: Font.Black; color: m3Root.colOnPrimary }
                             }
                         }
                     }
@@ -415,14 +446,15 @@ Item {
                 }
             }
 
-            // Right Floating Pill: Media + Presets + Sidebar Trigger
+            // Right Module Cluster
             Rectangle {
                 anchors.right: parent.right; anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 height: 30; width: m3BarRightRow.implicitWidth + 16
                 radius: 15
-                color: m3Root.colLayer0Clear
-                border.width: 1; border.color: m3Root.colLayer0Border
+                color: Qt.rgba(m3Root.colLayer0Clear.r, m3Root.colLayer0Clear.g, m3Root.colLayer0Clear.b, 0.62 * (1.0 - m3BarWin.solidK))
+                border.width: 1
+                border.color: Qt.rgba(m3Root.colLayer0Border.r, m3Root.colLayer0Border.g, m3Root.colLayer0Border.b, 0.36 * (1.0 - m3BarWin.solidK))
 
                 Row {
                     id: m3BarRightRow
@@ -430,47 +462,22 @@ Item {
                     spacing: 6
 
                     Rectangle {
-                        height: 22
-                        width: Math.min(185, m3BarMediaLbl.implicitWidth + 28)
-                        radius: 11
+                        height: 22; width: Math.min(185, m3BarMediaLbl.implicitWidth + 28); radius: 11
                         color: m3Root.colSurfaceVariant
                         Row {
                             anchors.centerIn: parent; spacing: 5
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                font.family: m3Root.iconFontName; font.pixelSize: 13
-                                text: m3Root.hasSymbols ? (MediaService.hasSession && MediaService.isPlaying ? "pause" : "music_note") : "♪"
-                                color: m3Root.colPrimary
-                            }
-                            Text {
-                                id: m3BarMediaLbl
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(145, implicitWidth)
-                                elide: Text.ElideRight
-                                text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "No media"
-                                font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold
-                                color: m3Root.colOnLayer1
-                            }
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 13; text: m3Root.hasSymbols ? (MediaService.hasSession && MediaService.isPlaying ? "pause" : "music_note") : "♪"; color: m3Root.colPrimary }
+                            Text { id: m3BarMediaLbl; anchors.verticalCenter: parent.verticalCenter; width: Math.min(145, implicitWidth); elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "No media"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold; color: m3Root.colOnLayer1 }
                         }
-                        MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => MediaService.playPause())
-                        }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.playPause()) }
                     }
 
                     Rectangle {
                         height: 22; width: m3BarPresetTxt.implicitWidth + 16; radius: 11
                         color: m3BarPresetMa.containsMouse ? m3Root.colPrimary : m3Root.colPrimaryContainer
-                        Text {
-                            id: m3BarPresetTxt
-                            anchors.centerIn: parent
-                            text: "Presets"
-                            font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold
-                            color: m3BarPresetMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnPrimaryContainer
-                        }
+                        Text { id: m3BarPresetTxt; anchors.centerIn: parent; text: "Presets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3BarPresetMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnPrimaryContainer }
                         MouseArea {
-                            id: m3BarPresetMa
-                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            id: m3BarPresetMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
                                 if (m3Root.themeHub) {
                                     m3Root.themeHub.landscapeContent = "settings"
@@ -485,17 +492,8 @@ Item {
                     Rectangle {
                         height: 22; width: 26; radius: 11
                         color: (m3Root.sidebarOpen || m3BarQpMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
-                        Text {
-                            anchors.centerIn: parent
-                            font.family: m3Root.iconFontName; font.pixelSize: 14
-                            text: m3Root.hasSymbols ? "tune" : "⚙"
-                            color: (m3Root.sidebarOpen || m3BarQpMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0
-                        }
-                        MouseArea {
-                            id: m3BarQpMa
-                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => m3Root.toggleQuickPanel())
-                        }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "tune" : "⚙"; color: (m3Root.sidebarOpen || m3BarQpMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        MouseArea { id: m3BarQpMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
                     }
                 }
             }
@@ -513,104 +511,56 @@ Item {
         baseH: 252
 
         Rectangle {
-            width: 276; height: 252
-            radius: 30
+            width: 276; height: 252; radius: 30
             color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.72)
             border.width: 1; border.color: m3Root.colLayer0Border
 
             Rectangle {
-                x: 18; y: 66
-                width: 240; height: 168
-                radius: 18
+                x: 18; y: 66; width: 240; height: 168; radius: 18
                 color: m3Root.colPrimaryContainer
 
                 Column {
-                    anchors {
-                        top: parent.top; topMargin: 44
-                        left: parent.left; leftMargin: 16
-                        right: parent.right; rightMargin: 16
-                    }
+                    anchors { top: parent.top; topMargin: 44; left: parent.left; leftMargin: 16; right: parent.right; rightMargin: 16 }
                     spacing: 10
 
                     Row {
                         width: parent.width; spacing: 6
-                        Text {
-                            font.family: m3Root.iconFontName; font.pixelSize: 15
-                            text: m3Root.hasSymbols ? m3Root.weatherQuip().icon : m3Root.weatherQuip().fb
-                            color: m3Root.colOnPrimaryContainer; opacity: 0.85
-                        }
-                        Text {
-                            width: parent.width - 22; elide: Text.ElideRight
-                            text: m3Root.weatherQuip().text
-                            font.family: "Segoe UI"; font.pixelSize: 12
-                            color: m3Root.colOnPrimaryContainer; opacity: 0.88
-                        }
+                        Text { font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? m3Root.weatherQuip().icon : m3Root.weatherQuip().fb; color: m3Root.colOnPrimaryContainer; opacity: 0.85 }
+                        Text { width: parent.width - 22; elide: Text.ElideRight; text: m3Root.weatherQuip().text; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnPrimaryContainer; opacity: 0.88 }
                     }
 
                     Row {
                         width: parent.width; spacing: 8
-
                         Rectangle {
                             width: parent.width - 96; height: 40; radius: 20
                             color: ucLockMa.containsMouse ? m3Root.colPrimary : m3Root.colOnPrimaryContainer
                             Row {
                                 anchors.centerIn: parent; spacing: 5
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    font.family: m3Root.iconFontName; font.pixelSize: 16
-                                    text: m3Root.hasSymbols ? "lock" : "🔒"
-                                    color: m3Root.colPrimaryContainer
-                                }
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "Lock"
-                                    font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
-                                    color: m3Root.colPrimaryContainer
-                                }
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 16; text: m3Root.hasSymbols ? "lock" : "🔒"; color: m3Root.colPrimaryContainer }
+                                Text { anchors.verticalCenter: parent.verticalCenter; text: "Lock"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: m3Root.colPrimaryContainer }
                             }
-                            MouseArea {
-                                id: ucLockMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.callLater(() => SystemControl.lockScreen())
-                            }
+                            MouseArea { id: ucLockMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.lockScreen()) }
                         }
-
                         Rectangle {
                             width: 40; height: 40; radius: 20
                             color: ucSetMa.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent"
                             border.width: 1; border.color: m3Root.colOnPrimaryContainer
-                            Text {
-                                anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 17
-                                text: m3Root.hasSymbols ? "settings" : "⚙"
-                                color: m3Root.colOnPrimaryContainer
-                            }
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "widgets" : "⊞"; color: m3Root.colOnPrimaryContainer }
                             MouseArea {
                                 id: ucSetMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 onClicked: Qt.callLater(() => {
-                                    if (m3Root.themeHub) {
-                                        m3Root.themeHub.landscapeContent = "settings"
-                                        m3Root.themeHub.settingsSection = "presets"
-                                        m3Root.themeHub.settingsOpen = true
-                                        ThemeStore.refreshCatalog()
-                                    }
+                                    m3Root.launcherOpen = false
+                                    m3Root.sidebarSubView = "widgets"
+                                    m3Root.sidebarOpen = true
                                 })
                             }
                         }
-
                         Rectangle {
                             width: 40; height: 40; radius: 20
                             color: ucPwrMa.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent"
                             border.width: 1; border.color: m3Root.colOnPrimaryContainer
-                            Text {
-                                anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 17
-                                text: m3Root.hasSymbols ? "power_settings_new" : "⏻"
-                                color: m3Root.colOnPrimaryContainer
-                            }
-                            MouseArea {
-                                id: ucPwrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.callLater(() => m3Root.toggleQuickPanel())
-                            }
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "power_settings_new" : "⏻"; color: m3Root.colOnPrimaryContainer }
+                            MouseArea { id: ucPwrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
                         }
                     }
                 }
@@ -619,27 +569,13 @@ Item {
             Row {
                 x: 24; y: 18; width: 228; spacing: 12
                 Rectangle {
-                    width: 64; height: 64; radius: 32
-                    color: m3Root.colLayer0
-                    border.width: 2; border.color: m3Root.colPrimary; clip: true
-                    Image {
-                        anchors.fill: parent; anchors.margins: 2
-                        source: "qrc:/qml/icons/author-pfp.png"
-                        fillMode: Image.PreserveAspectCrop; smooth: true
-                    }
+                    width: 64; height: 64; radius: 32; color: m3Root.colLayer0; border.width: 2; border.color: m3Root.colPrimary; clip: true
+                    Image { anchors.fill: parent; anchors.margins: 2; source: "qrc:/qml/icons/author-pfp.png"; fillMode: Image.PreserveAspectCrop; smooth: true }
                 }
                 Column {
                     anchors.top: parent.top; anchors.topMargin: 8; width: 152; spacing: 1
-                    Text {
-                        width: parent.width; elide: Text.ElideRight
-                        text: (WindowTracker.userName || "User") + "@" + (WindowTracker.machineName || "PC")
-                        font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: "#FFFFFF"
-                    }
-                    Text {
-                        width: parent.width; elide: Text.ElideRight
-                        text: "Up • " + (WindowTracker.uptimeText || "0m")
-                        font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1
-                    }
+                    Text { width: parent.width; elide: Text.ElideRight; text: (WindowTracker.userName || "User") + "@" + (WindowTracker.machineName || "PC"); font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: "#FFFFFF" }
+                    Text { width: parent.width; elide: Text.ElideRight; text: "Up • " + (WindowTracker.uptimeText || "0m"); font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1 }
                 }
             }
         }
@@ -656,65 +592,30 @@ Item {
         baseH: 252
 
         Rectangle {
-            width: 276; height: 252
-            radius: 30
-            color: m3Root.colPrimaryContainer
-            border.width: 1; border.color: m3Root.colLayer0Border
+            width: 276; height: 252; radius: 30
+            color: m3Root.colPrimaryContainer; border.width: 1; border.color: m3Root.colLayer0Border
 
             Column {
                 anchors.fill: parent; anchors.margins: 14; spacing: 8
-
                 Item {
                     width: parent.width; height: 28
                     Row {
                         anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            font.family: m3Root.iconFontName; font.pixelSize: 18
-                            text: m3Root.hasSymbols ? "location_on" : "📍"
-                            color: m3Root.colOnPrimaryContainer; opacity: 0.7
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 180; elide: Text.ElideRight
-                            text: WeatherService.city || "Local Time"
-                            font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Medium
-                            color: m3Root.colOnPrimaryContainer
-                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "location_on" : "📍"; color: m3Root.colOnPrimaryContainer; opacity: 0.7 }
+                        Text { anchors.verticalCenter: parent.verticalCenter; width: 180; elide: Text.ElideRight; text: WeatherService.city || "Local Time"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Medium; color: m3Root.colOnPrimaryContainer }
                     }
                     Rectangle {
-                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        width: 28; height: 28; radius: 14
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 28; height: 28; radius: 14
                         color: Qt.rgba(m3Root.colLayer0.r, m3Root.colLayer0.g, m3Root.colLayer0.b, 0.35)
-                        Text {
-                            anchors.centerIn: parent
-                            font.family: m3Root.iconFontName; font.pixelSize: 14
-                            text: m3Root.hasSymbols ? "tune" : "⚙"
-                            color: m3Root.colOnSurfaceVariant
-                        }
-                        MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => m3Root.toggleQuickPanel())
-                        }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "tune" : "⚙"; color: m3Root.colOnSurfaceVariant }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel()) }
                     }
                 }
-
                 Column {
                     width: parent.width; spacing: -4
-                    Text {
-                        width: parent.width; horizontalAlignment: Text.AlignRight
-                        text: Qt.formatDateTime(m3Root.nowDate, "hh:mm AP")
-                        font.family: "Segoe UI"; font.pixelSize: 38; font.weight: Font.Bold
-                        color: m3Root.colOnPrimaryContainer
-                    }
-                    Text {
-                        width: parent.width; horizontalAlignment: Text.AlignRight
-                        text: Qt.formatDateTime(m3Root.nowDate, "dddd, MMMM d yyyy")
-                        font.family: "Segoe UI"; font.pixelSize: 11
-                        color: m3Root.colOnPrimaryContainer; opacity: 0.72
-                    }
+                    Text { width: parent.width; horizontalAlignment: Text.AlignRight; text: Qt.formatDateTime(m3Root.nowDate, "hh:mm AP"); font.family: "Segoe UI"; font.pixelSize: 38; font.weight: Font.Bold; color: m3Root.colOnPrimaryContainer }
+                    Text { width: parent.width; horizontalAlignment: Text.AlignRight; text: Qt.formatDateTime(m3Root.nowDate, "dddd, MMMM d yyyy"); font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnPrimaryContainer; opacity: 0.72 }
                 }
-
                 Grid {
                     width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
                     Repeater {
@@ -763,45 +664,18 @@ Item {
 
         Item {
             width: 420; height: 158
-
             Column {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: -18
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: Qt.formatDateTime(m3Root.nowDate, "HH")
-                    font.family: "Segoe UI"; font.pixelSize: 58; font.weight: Font.Black
-                    color: m3Root.colPrimary
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: Qt.formatDateTime(m3Root.nowDate, "mm")
-                    font.family: "Segoe UI"; font.pixelSize: 58; font.weight: Font.Black
-                    color: m3Root.colOnPrimaryContainer
-                }
+                anchors.horizontalCenter: parent.horizontalCenter; spacing: -18
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDateTime(m3Root.nowDate, "HH"); font.family: "Segoe UI"; font.pixelSize: 58; font.weight: Font.Black; color: m3Root.colPrimary }
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDateTime(m3Root.nowDate, "mm"); font.family: "Segoe UI"; font.pixelSize: 58; font.weight: Font.Black; color: m3Root.colOnPrimaryContainer }
             }
-
             Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                width: 78; height: 46; radius: 14
-                color: m3Root.colLayer1
-                border.width: 1; border.color: m3Root.colLayer0Border
+                anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom
+                width: 78; height: 46; radius: 14; color: m3Root.colLayer1; border.width: 1; border.color: m3Root.colLayer0Border
                 Column {
                     anchors.centerIn: parent; spacing: 0
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: Qt.formatDateTime(m3Root.nowDate, "MMM ddd").toUpperCase()
-                        font.family: "Consolas"; font.pixelSize: 10; font.weight: Font.Bold
-                        color: m3Root.colPrimary
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: Qt.formatDateTime(m3Root.nowDate, "dd")
-                        font.family: "Segoe UI"; font.pixelSize: 20; font.weight: Font.Black
-                        color: m3Root.colOnLayer0
-                    }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDateTime(m3Root.nowDate, "MMM ddd").toUpperCase(); font.family: "Consolas"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colPrimary }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDateTime(m3Root.nowDate, "dd"); font.family: "Segoe UI"; font.pixelSize: 20; font.weight: Font.Black; color: m3Root.colOnLayer0 }
                 }
             }
         }
@@ -818,43 +692,23 @@ Item {
         baseH: 120
 
         Rectangle {
-            width: 420; height: 120
-            radius: 30
-            color: m3Root.colPrimaryContainer
-            border.width: 1; border.color: m3Root.colLayer0Border
-            clip: true
+            width: 420; height: 120; radius: 30
+            color: m3Root.colPrimaryContainer; border.width: 1; border.color: m3Root.colLayer0Border; clip: true
 
             Rectangle {
                 x: 0; y: 0; width: 120; height: 120
                 topLeftRadius: 30; bottomLeftRadius: 30; topRightRadius: 0; bottomRightRadius: 0
                 color: m3Root.colLayer1; clip: true
-                Image {
-                    anchors.fill: parent; visible: MediaService.artUrl !== ""
-                    source: MediaService.artUrl; fillMode: Image.PreserveAspectCrop; smooth: true
-                }
-                Text {
-                    visible: MediaService.artUrl === ""
-                    anchors.centerIn: parent
-                    font.family: m3Root.iconFontName; font.pixelSize: 38
-                    text: m3Root.hasSymbols ? "music_note" : "♫"
-                    color: m3Root.colOnPrimaryContainer; opacity: 0.78
-                }
+                Image { anchors.fill: parent; visible: MediaService.artUrl !== ""; source: MediaService.artUrl; fillMode: Image.PreserveAspectCrop; smooth: true }
+                Text { visible: MediaService.artUrl === ""; anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 38; text: m3Root.hasSymbols ? "music_note" : "♫"; color: m3Root.colOnPrimaryContainer; opacity: 0.78 }
             }
 
             Item {
                 x: 136; y: 12; width: 270; height: 96
                 Column {
                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; spacing: 2
-                    Text {
-                        width: parent.width; elide: Text.ElideRight
-                        text: (MediaService.hasSession && MediaService.artist !== "") ? MediaService.artist : "Play"
-                        font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.DemiBold; color: m3Root.colOnPrimaryContainer
-                    }
-                    Text {
-                        width: parent.width; elide: Text.ElideRight
-                        text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "Something"
-                        font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnPrimaryContainer; opacity: 0.65
-                    }
+                    Text { width: parent.width; elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.artist !== "") ? MediaService.artist : "Play"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.DemiBold; color: m3Root.colOnPrimaryContainer }
+                    Text { width: parent.width; elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "Something"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnPrimaryContainer; opacity: 0.65 }
                 }
 
                 Rectangle {
@@ -872,8 +726,7 @@ Item {
                         }
                         MaterialShapeBadge {
                             anchors.verticalCenter: parent.verticalCenter
-                            shape: MaterialShape.Shape.Cookie12Sided
-                            color: m3Root.colPrimary; colSymbol: m3Root.colOnPrimary
+                            shape: MaterialShape.Shape.Cookie12Sided; color: m3Root.colPrimary; colSymbol: m3Root.colOnPrimary
                             iconFontFamily: m3Root.iconFontName; useSymbolFont: m3Root.hasSymbols
                             text: MediaService.isPlaying ? "pause" : "play_arrow"; fallbackText: MediaService.isPlaying ? "❚❚" : "▶"
                             iconSize: 22; padding: 9; implicitWidth: 40; implicitHeight: 40
@@ -920,8 +773,7 @@ Item {
                     }
                     MaterialShapeBadge {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        shape: MaterialShape.Shape.Cookie12Sided
-                        color: m3Root.colPrimary; colSymbol: m3Root.colOnPrimary
+                        shape: MaterialShape.Shape.Cookie12Sided; color: m3Root.colPrimary; colSymbol: m3Root.colOnPrimary
                         iconFontFamily: m3Root.iconFontName; useSymbolFont: m3Root.hasSymbols
                         text: m3Root.wmoSymbol(WeatherService.weatherCode); fallbackText: "☁"
                         iconSize: 24; padding: 10; implicitWidth: 46; implicitHeight: 46
@@ -972,15 +824,12 @@ Item {
                 ]
                 delegate: Rectangle {
                     required property var modelData
-                    width: 132; height: 120; radius: 30
-                    color: modelData.bg; border.width: 1; border.color: m3Root.colLayer0Border
-
+                    width: 132; height: 120; radius: 30; color: modelData.bg; border.width: 1; border.color: m3Root.colLayer0Border
                     MaterialShapeBadge {
                         anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 14
                         shape: modelData.shape; color: modelData.sc; colSymbol: m3Root.colOnPrimary
                         iconFontFamily: m3Root.iconFontName; useSymbolFont: m3Root.hasSymbols
-                        text: modelData.ic; fallbackText: modelData.fb; iconSize: 17; padding: 7
-                        implicitWidth: 34; implicitHeight: 34
+                        text: modelData.ic; fallbackText: modelData.fb; iconSize: 17; padding: 7; implicitWidth: 34; implicitHeight: 34
                     }
                     Column {
                         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 14; spacing: -2
@@ -1019,11 +868,7 @@ Item {
 
         property real hideProgress: dockShouldHide ? 1.0 : 0.0
         Behavior on hideProgress {
-            NumberAnimation {
-                duration: 240
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1]
-            }
+            NumberAnimation { duration: 240; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1] }
         }
 
         clickThrough: hideProgress > 0.85
@@ -1046,10 +891,7 @@ Item {
 
         Item {
             anchors.fill: parent
-
-            HoverHandler {
-                id: m3DockHover
-            }
+            HoverHandler { id: m3DockHover }
 
             Rectangle {
                 id: m3DockPill
@@ -1067,72 +909,43 @@ Item {
                     anchors.centerIn: parent
                     spacing: 6
 
-                    // Pin / Auto-Hide Toggle (DockPinButton.qml)
                     Rectangle {
-                        width: 38; height: 38; radius: 19
-                        anchors.verticalCenter: parent.verticalCenter
+                        width: 38; height: 38; radius: 19; anchors.verticalCenter: parent.verticalCenter
                         color: m3DockPinMa.containsMouse ? m3Root.colSurfaceVariant : (m3Root.dockPinned ? Qt.rgba(m3Root.colPrimary.r, m3Root.colPrimary.g, m3Root.colPrimary.b, 0.16) : "transparent")
-                        Text {
-                            anchors.centerIn: parent
-                            font.family: m3Root.iconFontName; font.pixelSize: 18
-                            text: m3Root.hasSymbols ? "keep" : "📌"
-                            color: m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1
-                        }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "keep" : "📌"; color: m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1 }
                         MouseArea {
                             id: m3DockPinMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => {
-                                if (m3Root.themeHub)
-                                    m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide)
-                            })
+                            onClicked: Qt.callLater(() => { if (m3Root.themeHub) m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide) })
                         }
                     }
 
-                    Rectangle {
-                        width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter
-                        color: m3Root.colLayer0Border
-                    }
+                    Rectangle { width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
-                    // App Icons
                     Repeater {
                         model: m3Root.m3DockApps
                         delegate: Item {
                             required property var modelData
-                            width: 40; height: 40
-                            anchors.verticalCenter: parent.verticalCenter
-
+                            width: 40; height: 40; anchors.verticalCenter: parent.verticalCenter
                             Rectangle {
-                                anchors.fill: parent
-                                radius: 14
+                                anchors.fill: parent; radius: 14
                                 color: m3DockItMa.containsMouse ? m3Root.colSurfaceVariant : (modelData.active ? m3Root.colPrimaryContainer : "transparent")
-
                                 Image {
-                                    anchors.centerIn: parent
-                                    width: 26; height: 26
+                                    anchors.centerIn: parent; width: 26; height: 26; asynchronous: true; cache: true; smooth: true; mipmap: true
                                     source: "image://winicon/" + encodeURIComponent(modelData.target)
-                                    smooth: true; mipmap: true
                                     scale: m3DockItMa.containsMouse ? 1.12 : 1.0
                                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                 }
-
                                 Rectangle {
                                     visible: modelData.running
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    anchors.bottom: parent.bottom; anchors.bottomMargin: 2
-                                    width: modelData.active ? 14 : 6; height: 3; radius: 1.5
-                                    color: m3Root.colPrimary
+                                    anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 2
+                                    width: modelData.active ? 14 : 6; height: 3; radius: 1.5; color: m3Root.colPrimary
                                 }
                             }
-
                             MouseArea {
-                                id: m3DockItMa
-                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                id: m3DockItMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: mouse => {
-                                    const tgt = modelData.target
-                                    const nm = modelData.name || tgt
-                                    const args = modelData.args || ""
-                                    const run = !!modelData.running
-                                    const pin = !!modelData.pinned
+                                    const tgt = modelData.target; const nm = modelData.name || tgt; const args = modelData.args || ""
+                                    const run = !!modelData.running; const pin = !!modelData.pinned
                                     Qt.callLater(() => {
                                         if (mouse.button === Qt.RightButton) {
                                             if (pin) AppLauncher.removePinnedByTarget(tgt)
@@ -1147,26 +960,13 @@ Item {
                         }
                     }
 
-                    Rectangle {
-                        width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter
-                        color: m3Root.colLayer0Border
-                    }
+                    Rectangle { width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
-                    // DockAppsButton -> Native M3 Overview / Launcher
                     Rectangle {
-                        width: 40; height: 40; radius: 20
-                        anchors.verticalCenter: parent.verticalCenter
+                        width: 40; height: 40; radius: 20; anchors.verticalCenter: parent.verticalCenter
                         color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
-                        Text {
-                            anchors.centerIn: parent
-                            font.family: m3Root.iconFontName; font.pixelSize: 20
-                            text: m3Root.hasSymbols ? "apps" : "⊞"
-                            color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary
-                        }
-                        MouseArea {
-                            id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => m3Root.toggleLauncher())
-                        }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? "apps" : "⊞"; color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary }
+                        MouseArea { id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleLauncher()) }
                     }
                 }
             }
@@ -1174,22 +974,18 @@ Item {
     }
 
     // =========================================================================
-    // 9. Native end4-pC Right Sidebar Control Center (Ctrl+Alt+A / tune)
+    // 9. Native end4-pC Right Sidebar (Wi-Fi/BT/Widgets/Sliders/Notifs/Presets + Esc)
     // =========================================================================
     PanelWindow {
         id: m3SidebarWin
         property real slideK: m3Root.sidebarOpen ? 1.0 : 0.0
         Behavior on slideK {
-            NumberAnimation {
-                duration: 280
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1]
-            }
+            NumberAnimation { duration: 280; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1] }
         }
 
         visible: (m3Root.sidebarOpen || slideK > 0.01) && !m3Root.fullscreenActive
-        readonly property int targetW: 432
-        readonly property int targetH: Math.max(480, m3Root.sh - 56)
+        readonly property int targetW: 438
+        readonly property int targetH: Math.max(500, m3Root.sh - 56)
         readonly property int targetX: m3Root.sw - targetW - 8
         readonly property int targetY: 46
 
@@ -1208,27 +1004,44 @@ Item {
             if (visible) {
                 syncGeo()
                 focusActivate()
+                sbCard.forceActiveFocus()
+            } else {
+                m3Root.sidebarSubView = ""
+                m3Root.wifiPwSsid = ""
+                m3Root.wifiPwVisible = false
+                wifiPwInput.text = ""
             }
         }
         onWindowDeactivated: m3Root.sidebarOpen = false
 
         Rectangle {
             id: sbCard
+            focus: true
             x: Math.round((1.0 - m3SidebarWin.slideK) * (m3SidebarWin.targetW + 16))
             y: 0
-            width: parent.width
-            height: parent.height
+            width: parent.width; height: parent.height
             radius: 26
             color: m3Root.colLayer1
             border.width: 1; border.color: m3Root.colLayer0Border
             clip: true
 
-            Column {
-                anchors.fill: parent
-                anchors.margins: 16
-                spacing: 14
+            Keys.onEscapePressed: {
+                if (m3Root.wifiPwSsid !== "") {
+                    m3Root.wifiPwSsid = ""
+                    wifiPwInput.text = ""
+                } else if (m3Root.sidebarSubView !== "") {
+                    m3Root.sidebarSubView = ""
+                } else {
+                    m3Root.sidebarOpen = false
+                }
+            }
 
-                // Sidebar Header Row
+            // ---- MAIN SIDEBAR VIEW ----
+            Column {
+                visible: m3Root.sidebarSubView === ""
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                // Header
                 Item {
                     width: parent.width; height: 36
                     Row {
@@ -1248,7 +1061,7 @@ Item {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
                         Repeater {
                             model: [
-                                { act: "reset", ic: "restart_alt", fb: "↺" },
+                                { act: "widgets", ic: "widgets", fb: "⊞" },
                                 { act: "settings", ic: "settings", fb: "⚙" },
                                 { act: "lock", ic: "lock", fb: "🔒" },
                                 { act: "sleep", ic: "bedtime", fb: "☾" }
@@ -1263,7 +1076,7 @@ Item {
                                     onClicked: {
                                         const act = modelData.act
                                         Qt.callLater(() => {
-                                            if (act === "reset") m3Root.resetWidgetPositions()
+                                            if (act === "widgets") m3Root.sidebarSubView = "widgets"
                                             else if (act === "lock") { m3Root.sidebarOpen = false; SystemControl.lockScreen() }
                                             else if (act === "sleep") { m3Root.sidebarOpen = false; SystemControl.sleepPc() }
                                             else if (act === "settings" && m3Root.themeHub) {
@@ -1281,32 +1094,83 @@ Item {
                     }
                 }
 
-                // 3x2 M3 Quick Toggles Grid
+                // 3x2 Quick Toggles (Wi-Fi & BT open full sub-panels on card tap or right arrow; icon toggles directly!)
                 Grid {
-                    width: parent.width
-                    columns: 2; columnSpacing: 8; rowSpacing: 8
+                    width: parent.width; columns: 2; columnSpacing: 8; rowSpacing: 8
+
+                    // Wi-Fi Pill
+                    Rectangle {
+                        width: (sbCard.width - 40) * 0.5; height: 54; radius: 27
+                        color: SystemControl.wifiEnabled ? m3Root.colPrimary : m3Root.colLayer2
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                            Rectangle {
+                                width: 32; height: 32; radius: 16; anchors.verticalCenter: parent.verticalCenter
+                                color: SystemControl.wifiEnabled ? Qt.rgba(0, 0, 0, 0.14) : m3Root.colLayer0
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? (SystemControl.wifiEnabled ? "wifi" : "wifi_off") : "📶"; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleWifi()) }
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter; width: parent.width - 68; spacing: 0
+                                Text { width: parent.width; elide: Text.ElideRight; text: "Wi-Fi"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: SystemControl.wifiStatusText !== "" ? SystemControl.wifiStatusText : (SystemControl.wifiEnabled ? "Networks..." : "Off"); font.family: "Segoe UI"; font.pixelSize: 10; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer1; opacity: 0.8 }
+                            }
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "chevron_right" : "›"; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer1 }
+                        }
+                        MouseArea {
+                            anchors.left: parent.left; anchors.leftMargin: 44; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.sidebarSubView = "wifi"
+                                SystemControl.refreshWifi()
+                            })
+                        }
+                    }
+
+                    // Bluetooth Pill
+                    Rectangle {
+                        width: (sbCard.width - 40) * 0.5; height: 54; radius: 27
+                        color: SystemControl.bluetoothEnabled ? m3Root.colPrimary : m3Root.colLayer2
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                            Rectangle {
+                                width: 32; height: 32; radius: 16; anchors.verticalCenter: parent.verticalCenter
+                                color: SystemControl.bluetoothEnabled ? Qt.rgba(0, 0, 0, 0.14) : m3Root.colLayer0
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "bluetooth" : "ᛒ"; color: SystemControl.bluetoothEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleBluetooth()) }
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter; width: parent.width - 68; spacing: 0
+                                Text { width: parent.width; elide: Text.ElideRight; text: "Bluetooth"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: SystemControl.bluetoothEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: SystemControl.bluetoothEnabled ? (SystemControl.bluetoothDevices.length + " dev") : "Off"; font.family: "Segoe UI"; font.pixelSize: 10; color: SystemControl.bluetoothEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer1; opacity: 0.8 }
+                            }
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "chevron_right" : "›"; color: SystemControl.bluetoothEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer1 }
+                        }
+                        MouseArea {
+                            anchors.left: parent.left; anchors.leftMargin: 44; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.sidebarSubView = "bt"
+                                SystemControl.refreshBluetooth()
+                            })
+                        }
+                    }
+
+                    // Mute / Dock Auto-Hide / Widgets / Theme Pills
                     Repeater {
                         model: [
-                            { id: "wifi", title: "Wi-Fi", sub: SystemControl.wifiEnabled ? "Connected" : "Off", active: SystemControl.wifiEnabled, ic: "wifi", fb: "📶" },
-                            { id: "bt", title: "Bluetooth", sub: SystemControl.bluetoothEnabled ? "Enabled" : "Off", active: SystemControl.bluetoothEnabled, ic: "bluetooth", fb: "ᛒ" },
                             { id: "mute", title: AudioService.masterMuted ? "Muted" : "Sound On", sub: AudioService.masterVolume + "%", active: !AudioService.masterMuted, ic: AudioService.masterMuted ? "volume_off" : "volume_up", fb: "🔊" },
                             { id: "dock", title: "Auto-Hide Dock", sub: m3Root.dockPinned ? "Pinned" : "Dodge", active: !m3Root.dockPinned, ic: "dock_to_bottom", fb: "▁" },
-                            { id: "awake", title: "Keep Awake", sub: SystemControl.keepAwake ? "Active" : "Off", active: SystemControl.keepAwake, ic: "coffee", fb: "☕" },
+                            { id: "widgets", title: "Desktop Widgets", sub: "Toggle & Reset", active: false, ic: "widgets", fb: "⊞" },
                             { id: "theme", title: "Dark Mode", sub: SystemControl.darkMode ? "Dark" : "Light", active: SystemControl.darkMode, ic: "dark_mode", fb: "☾" }
                         ]
                         delegate: Rectangle {
                             required property var modelData
-                            width: (sbCard.width - 40) * 0.5
-                            height: 54; radius: 27
+                            width: (sbCard.width - 40) * 0.5; height: 54; radius: 27
                             color: modelData.active ? m3Root.colPrimary : m3Root.colLayer2
                             Row {
                                 anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 12; spacing: 10
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    font.family: m3Root.iconFontName; font.pixelSize: 20
-                                    text: m3Root.hasSymbols ? modelData.ic : modelData.fb
-                                    color: modelData.active ? m3Root.colOnPrimary : m3Root.colOnLayer0
-                                }
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: modelData.active ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
                                 Column {
                                     anchors.verticalCenter: parent.verticalCenter; width: parent.width - 36; spacing: 0
                                     Text { width: parent.width; elide: Text.ElideRight; text: modelData.title; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: modelData.active ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
@@ -1318,11 +1182,9 @@ Item {
                                 onClicked: {
                                     const tid = modelData.id
                                     Qt.callLater(() => {
-                                        if (tid === "wifi") SystemControl.toggleWifi()
-                                        else if (tid === "bt") SystemControl.toggleBluetooth()
-                                        else if (tid === "mute") AudioService.toggleMasterMute()
+                                        if (tid === "mute") AudioService.toggleMasterMute()
                                         else if (tid === "dock" && m3Root.themeHub) m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide)
-                                        else if (tid === "awake") SystemControl.toggleKeepAwake()
+                                        else if (tid === "widgets") m3Root.sidebarSubView = "widgets"
                                         else if (tid === "theme") SystemControl.toggleDarkMode()
                                     })
                                 }
@@ -1331,26 +1193,16 @@ Item {
                     }
                 }
 
-                // Thick M3 Expressive Volume + Brightness Sliders
+                // Volume + Brightness Sliders
                 Rectangle {
-                    width: parent.width
-                    height: SystemControl.brightnessSupported ? 104 : 56
-                    radius: 22
-                    color: m3Root.colLayer2
-
+                    width: parent.width; height: SystemControl.brightnessSupported ? 104 : 56; radius: 22; color: m3Root.colLayer2
                     Column {
                         anchors.fill: parent; anchors.margins: 12; spacing: 10
-
-                        // Volume Slider
                         Item {
                             width: parent.width; height: 32
                             Rectangle {
                                 anchors.fill: parent; radius: 16; color: m3Root.colLayer0
-                                Rectangle {
-                                    height: parent.height; radius: 16
-                                    width: Math.max(32, parent.width * (AudioService.masterVolume / 100.0))
-                                    color: m3Root.colPrimary
-                                }
+                                Rectangle { height: parent.height; radius: 16; width: Math.max(32, parent.width * (AudioService.masterVolume / 100.0)); color: m3Root.colPrimary }
                                 Row {
                                     anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 8
                                     Text { font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "volume_up" : "🔊"; color: AudioService.masterVolume > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
@@ -1358,27 +1210,17 @@ Item {
                                 }
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    function applyVol(mx) {
-                                        const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100)
-                                        Qt.callLater(() => AudioService.setMasterVolume(pct))
-                                    }
+                                    function applyVol(mx) { const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); Qt.callLater(() => AudioService.setMasterVolume(pct)) }
                                     onPressed: mouse => applyVol(mouse.x)
                                     onPositionChanged: mouse => { if (pressed) applyVol(mouse.x) }
                                 }
                             }
                         }
-
-                        // Brightness Slider
                         Item {
-                            visible: SystemControl.brightnessSupported
-                            width: parent.width; height: 32
+                            visible: SystemControl.brightnessSupported; width: parent.width; height: 32
                             Rectangle {
                                 anchors.fill: parent; radius: 16; color: m3Root.colLayer0
-                                Rectangle {
-                                    height: parent.height; radius: 16
-                                    width: Math.max(32, parent.width * (SystemControl.brightness / 100.0))
-                                    color: m3Root.colSecondary
-                                }
+                                Rectangle { height: parent.height; radius: 16; width: Math.max(32, parent.width * (SystemControl.brightness / 100.0)); color: m3Root.colSecondary }
                                 Row {
                                     anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 8
                                     Text { font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "brightness_6" : "☀"; color: SystemControl.brightness > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
@@ -1386,10 +1228,7 @@ Item {
                                 }
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    function applyBri(mx) {
-                                        const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100)
-                                        Qt.callLater(() => SystemControl.setBrightness(pct))
-                                    }
+                                    function applyBri(mx) { const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); Qt.callLater(() => SystemControl.setBrightness(pct)) }
                                     onPressed: mouse => applyBri(mouse.x)
                                     onPositionChanged: mouse => { if (pressed) applyBri(mouse.x) }
                                 }
@@ -1398,7 +1237,7 @@ Item {
                     }
                 }
 
-                // Quick Preset Switcher Strip
+                // Quick Preset Switcher (smooth transition veil!)
                 Row {
                     width: parent.width; height: 34; spacing: 6
                     Repeater {
@@ -1411,8 +1250,7 @@ Item {
                             height: 34; radius: 17
                             color: isCur ? m3Root.colPrimary : m3Root.colLayer2
                             Text {
-                                anchors.centerIn: parent
-                                width: parent.width - 10; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                                anchors.centerIn: parent; width: parent.width - 10; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
                                 text: modelData.id === "pjsk" ? "PJSK" : (modelData.id === "material-you" ? "Material You" : (modelData.name || modelData.id))
                                 font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold
                                 color: isCur ? m3Root.colOnPrimary : m3Root.colOnLayer0
@@ -1424,11 +1262,13 @@ Item {
                                     const inst = isInst
                                     Qt.callLater(() => {
                                         m3Root.sidebarOpen = false
-                                        if (inst) ThemeStore.applyPreset(pid)
-                                        else if (m3Root.themeHub) {
+                                        if (inst && m3Root.themeHub) {
+                                            m3Root.themeHub.requestPresetSwitch(pid)
+                                        } else if (m3Root.themeHub) {
                                             m3Root.themeHub.landscapeContent = "settings"
                                             m3Root.themeHub.settingsSection = "presets"
                                             m3Root.themeHub.settingsOpen = true
+                                            ThemeStore.refreshCatalog()
                                         }
                                     })
                                 }
@@ -1439,42 +1279,22 @@ Item {
 
                 // Notifications Center
                 Rectangle {
-                    width: parent.width
-                    height: Math.max(110, sbCard.height - 392)
-                    radius: 22
-                    color: m3Root.colLayer2
-                    clip: true
-
+                    width: parent.width; height: Math.max(110, sbCard.height - 392); radius: 22; color: m3Root.colLayer2; clip: true
                     Column {
                         anchors.fill: parent; anchors.margins: 14; spacing: 8
                         Item {
                             width: parent.width; height: 26
-                            Text {
-                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                text: "Notifications (" + NotificationService.notifications.length + ")"
-                                font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0
-                            }
+                            Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Notifications (" + NotificationService.notifications.length + ")"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
                             Rectangle {
-                                visible: NotificationService.notifications.length > 0
-                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                visible: NotificationService.notifications.length > 0; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                 width: 68; height: 24; radius: 12; color: m3Root.colLayer0
                                 Text { anchors.centerIn: parent; text: "Clear"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => NotificationService.clearAll()) }
                             }
                         }
-
-                        Text {
-                            visible: NotificationService.notifications.length === 0
-                            width: parent.width; height: parent.height - 40
-                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                            text: "All caught up"
-                            font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1
-                        }
-
+                        Text { visible: NotificationService.notifications.length === 0; width: parent.width; height: parent.height - 40; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: "All caught up"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
                         ListView {
-                            visible: NotificationService.notifications.length > 0
-                            width: parent.width; height: parent.height - 34
-                            spacing: 6; clip: true
+                            visible: NotificationService.notifications.length > 0; width: parent.width; height: parent.height - 34; spacing: 6; clip: true
                             model: NotificationService.notifications
                             delegate: Rectangle {
                                 required property var modelData
@@ -1489,21 +1309,332 @@ Item {
                     }
                 }
             }
+
+            // ---- SUB-VIEW: WI-FI NETWORKS & PASSWORD ENTRY ----
+            Column {
+                visible: m3Root.sidebarSubView === "wifi"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; m3Root.wifiPwSsid = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            Text { text: "Wi-Fi Networks"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Text { text: SystemControl.wifiScanning ? "Scanning..." : (SystemControl.wifiStatusText || "Ready"); font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colPrimary }
+                        }
+                    }
+                    Row {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "refresh" : "↻"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.refreshWifi()) }
+                        }
+                        Rectangle {
+                            width: 58; height: 34; radius: 17
+                            color: SystemControl.wifiEnabled ? m3Root.colPrimary : m3Root.colLayer2
+                            Text { anchors.centerIn: parent; text: SystemControl.wifiEnabled ? "ON" : "OFF"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Black; color: SystemControl.wifiEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleWifi()) }
+                        }
+                    }
+                }
+
+                // Inline Password Input Card + Show/Hide Eye Button
+                Rectangle {
+                    visible: m3Root.wifiPwSsid !== ""
+                    width: parent.width; height: 112; radius: 18
+                    color: m3Root.colLayer2; border.width: 1; border.color: m3Root.colPrimary
+
+                    Column {
+                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+                        Text {
+                            width: parent.width; elide: Text.ElideRight
+                            text: "Enter password for \"" + m3Root.wifiPwSsid + "\""
+                            font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0
+                        }
+                        Row {
+                            width: parent.width; height: 34; spacing: 8
+                            Rectangle {
+                                width: parent.width - 134; height: 34; radius: 12; color: m3Root.colLayer0; border.width: 1; border.color: m3Root.colLayer0Border
+                                TextInput {
+                                    id: wifiPwInput
+                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 36; verticalAlignment: TextInput.AlignVCenter
+                                    font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer0
+                                    echoMode: m3Root.wifiPwVisible ? TextInput.Normal : TextInput.Password
+                                    Keys.onEscapePressed: { m3Root.wifiPwSsid = ""; text = ""; sbCard.forceActiveFocus() }
+                                    Keys.onReturnPressed: {
+                                        const s = m3Root.wifiPwSsid; const pw = wifiPwInput.text
+                                        if (pw !== "") {
+                                            m3Root.wifiPwSsid = ""; wifiPwInput.text = ""
+                                            Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw))
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                                    width: 28; height: 26; radius: 10; color: "transparent"
+                                    Text {
+                                        anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17
+                                        text: m3Root.hasSymbols ? (m3Root.wifiPwVisible ? "visibility" : "visibility_off") : (m3Root.wifiPwVisible ? "👁" : "••")
+                                        color: m3Root.wifiPwVisible ? m3Root.colPrimary : m3Root.colOnLayer1
+                                    }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { m3Root.wifiPwVisible = !m3Root.wifiPwVisible } }
+                                }
+                            }
+                            Rectangle {
+                                width: 78; height: 34; radius: 12; color: m3Root.colPrimary
+                                Text { anchors.centerIn: parent; text: "Connect"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        const s = m3Root.wifiPwSsid; const pw = wifiPwInput.text
+                                        if (pw !== "") {
+                                            m3Root.wifiPwSsid = ""; wifiPwInput.text = ""
+                                            Qt.callLater(() => SystemControl.connectWifiWithPassword(s, pw))
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: 40; height: 34; radius: 12; color: m3Root.colLayer0
+                                Text { anchors.centerIn: parent; text: "×"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { m3Root.wifiPwSsid = ""; wifiPwInput.text = ""; sbCard.forceActiveFocus() } }
+                            }
+                        }
+                    }
+                }
+
+                // Wi-Fi List
+                ListView {
+                    width: parent.width
+                    height: parent.height - (m3Root.wifiPwSsid !== "" ? 172 : 48)
+                    spacing: 6; clip: true
+                    model: SystemControl.wifiNetworks
+                    Text {
+                        visible: SystemControl.wifiNetworks.length === 0
+                        anchors.centerIn: parent
+                        text: SystemControl.wifiScanning ? "Scanning nearby networks..." : "No networks found"
+                        font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1
+                    }
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool isConnecting: SystemControl.wifiConnectingSsid !== "" && (SystemControl.wifiConnectingSsid === modelData.ssid || SystemControl.wifiConnectingSsid === modelData.profile)
+                        readonly property bool isKnown: !!(modelData.profile && modelData.profile !== "") || !modelData.secured
+                        width: ListView.view.width; height: 50; radius: 16
+                        color: modelData.connected ? m3Root.colPrimaryContainer : (isConnecting ? m3Root.colSecondaryContainer : m3Root.colLayer2)
+                        border.width: modelData.connected ? 1 : 0; border.color: m3Root.colPrimary
+
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 19; text: m3Root.hasSymbols ? "wifi" : "📶"; color: modelData.connected ? m3Root.colPrimary : m3Root.colOnLayer0 }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter; width: parent.width - (isKnown ? 112 : 56); spacing: 1
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.ssid || "Hidden Network"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: (modelData.connected ? "Connected · " : (isConnecting ? "Connecting... · " : "")) + (modelData.signal || 0) + "%" + (modelData.secured ? " · Secured" : " · Open"); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                            }
+                            Text { visible: !!modelData.secured; anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? "lock" : "🔒"; color: m3Root.colOnLayer1 }
+                            Rectangle {
+                                visible: !!(modelData.profile && modelData.profile !== "")
+                                anchors.verticalCenter: parent.verticalCenter; width: 52; height: 26; radius: 13; color: m3Root.colLayer0
+                                Text { anchors.centerIn: parent; text: "Forget"; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: "#FFB4AB" }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { const prof = modelData.profile; Qt.callLater(() => SystemControl.forgetWifi(prof)) }
+                                }
+                            }
+                        }
+                        MouseArea {
+                            anchors.left: parent.left; anchors.right: parent.right; anchors.rightMargin: (modelData.profile && modelData.profile !== "") ? 64 : 0
+                            anchors.top: parent.top; anchors.bottom: parent.bottom
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                const ssid = modelData.ssid || ""
+                                const prof = modelData.profile || ""
+                                const sec = !!modelData.secured
+                                const conn = !!modelData.connected
+                                if (conn) return
+                                if (!sec || prof !== "") {
+                                    Qt.callLater(() => SystemControl.connectWifi(prof !== "" ? prof : ssid))
+                                } else {
+                                    m3Root.wifiPwSsid = ssid
+                                    m3Root.wifiPwVisible = false
+                                    wifiPwInput.text = ""
+                                    wifiPwInput.forceActiveFocus()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- SUB-VIEW: BLUETOOTH DEVICES ----
+            Column {
+                visible: m3Root.sidebarSubView === "bt"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            Text { text: "Bluetooth"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Text { text: SystemControl.btScanning ? "Scanning..." : (SystemControl.bluetoothDevices.length + " paired device(s)"); font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colPrimary }
+                        }
+                    }
+                    Row {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "add" : "+"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.openAddDeviceDialog()) }
+                        }
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "refresh" : "↻"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.scanBluetooth()) }
+                        }
+                        Rectangle {
+                            width: 58; height: 34; radius: 17; color: SystemControl.bluetoothEnabled ? m3Root.colPrimary : m3Root.colLayer2
+                            Text { anchors.centerIn: parent; text: SystemControl.bluetoothEnabled ? "ON" : "OFF"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Black; color: SystemControl.bluetoothEnabled ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => SystemControl.toggleBluetooth()) }
+                        }
+                    }
+                }
+
+                ListView {
+                    width: parent.width; height: parent.height - 48; spacing: 6; clip: true
+                    model: SystemControl.bluetoothDevices
+                    Text {
+                        visible: SystemControl.bluetoothDevices.length === 0
+                        anchors.centerIn: parent
+                        text: SystemControl.btScanning ? "Scanning Bluetooth devices..." : "No paired devices · Click + to pair"
+                        font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1
+                    }
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool canForget: (modelData.paired !== false) && !!(modelData.address && modelData.address !== "" && modelData.address !== "0")
+                        width: ListView.view.width; height: 50; radius: 16
+                        color: modelData.connected ? m3Root.colPrimaryContainer : m3Root.colLayer2
+
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 19; text: m3Root.hasSymbols ? "bluetooth" : "ᛒ"; color: modelData.connected ? m3Root.colPrimary : m3Root.colOnLayer0 }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter; width: parent.width - (canForget ? 96 : 36); spacing: 1
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.name || "Unknown Device"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.connected ? "Connected" : (modelData.type || "Paired"); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                            }
+                            Rectangle {
+                                visible: canForget; anchors.verticalCenter: parent.verticalCenter; width: 52; height: 26; radius: 13; color: m3Root.colLayer0
+                                Text { anchors.centerIn: parent; text: "Forget"; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: "#FFB4AB" }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { const addr = modelData.address; Qt.callLater(() => SystemControl.forgetBluetooth(addr)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- SUB-VIEW: DESKTOP WIDGETS MANAGER ----
+            Column {
+                visible: m3Root.sidebarSubView === "widgets"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Desktop Widgets"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    }
+                    Rectangle {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        width: 112; height: 34; radius: 17; color: m3Root.colPrimaryContainer
+                        Text { anchors.centerIn: parent; text: "Reset Layout"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.resetWidgetPositions()) }
+                    }
+                }
+
+                Column {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: [
+                            { key: "userCard",     name: "User Card",     sub: "Avatar, uptime, weather quip & quick actions", ic: "account_circle", fb: "👤" },
+                            { key: "worldClock",   name: "World Clock",   sub: "Local time & 4 day/night city cards",         ic: "public",         fb: "🌐" },
+                            { key: "digitalClock", name: "Digital Clock", sub: "Stacked HH / mm & date badge",                ic: "schedule",       fb: "🕒" },
+                            { key: "media",        name: "Media Player",  sub: "Album cover & Cookie12Sided controls",        ic: "music_note",     fb: "♫" },
+                            { key: "weather",      name: "Weather Card",  sub: "Temperature, condition & 4 metric pills",     ic: "cloud",          fb: "☁" },
+                            { key: "resources",    name: "System Stats",  sub: "CPU Gem, RAM & Temp/Battery cards",           ic: "memory",         fb: "⚙" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool shown: m3Root.isWidgetShown(modelData.key)
+                            width: sbCard.width - 32; height: 58; radius: 20
+                            color: shown ? m3Root.colPrimaryContainer : m3Root.colLayer2
+                            border.width: shown ? 1 : 0; border.color: m3Root.colPrimary
+
+                            Row {
+                                anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: shown ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                                Column {
+                                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - 88; spacing: 1
+                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.name; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.sub; font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                                }
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 46; height: 26; radius: 13
+                                    color: shown ? m3Root.colPrimary : m3Root.colLayer0
+                                    Rectangle {
+                                        width: 20; height: 20; radius: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        x: shown ? 23 : 3
+                                        color: shown ? m3Root.colOnPrimary : m3Root.colOnLayer1
+                                        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const k = modelData.key; const nextOn = !shown
+                                    Qt.callLater(() => m3Root.setWidgetShown(k, nextOn))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     // =========================================================================
-    // 10. Native end4-pC M3 Search Overview / App Launcher (Alt+Space / apps)
+    // 10. Silky Smooth M3 Search Overview / Virtualized GridView (Alt+Space)
     // =========================================================================
     PanelWindow {
         id: m3LauncherWin
         property real popK: m3Root.launcherOpen ? 1.0 : 0.0
         Behavior on popK {
-            NumberAnimation {
-                duration: 240
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1]
-            }
+            NumberAnimation { duration: 220; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1, 1, 1] }
         }
 
         visible: (m3Root.launcherOpen || popK > 0.01) && !m3Root.fullscreenActive
@@ -1529,10 +1660,19 @@ Item {
                 focusActivate()
                 m3SearchInput.forceActiveFocus()
             } else {
+                searchDebounceTimer.stop()
+                m3SearchInput.text = ""
                 m3Root.launcherQuery = ""
             }
         }
         onWindowDeactivated: m3Root.launcherOpen = false
+
+        Timer {
+            id: searchDebounceTimer
+            interval: 60
+            repeat: false
+            onTriggered: m3Root.launcherQuery = m3SearchInput.text
+        }
 
         Rectangle {
             anchors.fill: parent
@@ -1545,33 +1685,26 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 18; spacing: 14
 
-                // Centered M3 Search Bar Pill
                 Rectangle {
                     width: parent.width; height: 48; radius: 24
-                    color: m3Root.colLayer0
-                    border.width: 1; border.color: m3Root.colPrimary
+                    color: m3Root.colLayer0; border.width: 1; border.color: m3Root.colPrimary
 
                     Row {
                         anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 10
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            font.family: m3Root.iconFontName; font.pixelSize: 20
-                            text: m3Root.hasSymbols ? "search" : "🔍"
-                            color: m3Root.colPrimary
-                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? "search" : "🔍"; color: m3Root.colPrimary }
                         TextInput {
                             id: m3SearchInput
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - 42
                             font.family: "Segoe UI"; font.pixelSize: 15; color: m3Root.colOnLayer0
-                            text: m3Root.launcherQuery
-                            onTextChanged: m3Root.launcherQuery = text
+                            onTextChanged: searchDebounceTimer.restart()
                             Keys.onEscapePressed: m3Root.launcherOpen = false
                             Keys.onReturnPressed: {
+                                searchDebounceTimer.stop()
+                                m3Root.launcherQuery = text
                                 if (m3Root.filteredApps.length > 0) {
                                     const first = m3Root.filteredApps[0]
-                                    const tgt = first.target || ""
-                                    const args = first.args || ""
+                                    const tgt = first.target || ""; const args = first.args || ""
                                     Qt.callLater(() => {
                                         m3Root.launcherOpen = false
                                         AppLauncher.launch(tgt, args)
@@ -1587,56 +1720,51 @@ Item {
                     }
                 }
 
-                // Scrollable M3 App Grid
-                Flickable {
-                    width: parent.width; height: parent.height - 62
-                    contentHeight: m3AppGrid.implicitHeight + 12
+                GridView {
+                    id: m3AppGridView
+                    width: parent.width
+                    height: parent.height - 62
+                    cellWidth: Math.floor(width / 6)
+                    cellHeight: 102
+                    cacheBuffer: 320
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
+                    model: m3Root.filteredApps
 
-                    Grid {
-                        id: m3AppGrid
-                        width: parent.width
-                        columns: 6
-                        rowSpacing: 10
-                        columnSpacing: 8
+                    delegate: Item {
+                        required property var modelData
+                        width: m3AppGridView.cellWidth
+                        height: m3AppGridView.cellHeight
 
-                        Repeater {
-                            model: m3Root.filteredApps
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: (m3AppGrid.width - 40) / 6
-                                height: 100; radius: 20
-                                color: m3AppTileMa.containsMouse ? m3Root.colPrimaryContainer : "transparent"
+                        Rectangle {
+                            anchors.fill: parent; anchors.margins: 4; radius: 18
+                            color: m3AppTileMa.containsMouse ? m3Root.colPrimaryContainer : "transparent"
 
-                                Column {
-                                    anchors.centerIn: parent; width: parent.width - 12; spacing: 6
-                                    Image {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        width: 44; height: 44
-                                        source: modelData.target ? ("image://winicon/" + encodeURIComponent(modelData.target)) : ""
-                                        smooth: true; mipmap: true
-                                        scale: m3AppTileMa.containsMouse ? 1.10 : 1.0
-                                        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                                    }
-                                    Text {
-                                        width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
-                                        text: modelData.name || ""
-                                        font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold
-                                        color: m3Root.colOnLayer0
-                                    }
+                            Column {
+                                anchors.centerIn: parent; width: parent.width - 12; spacing: 6
+                                Image {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: 44; height: 44
+                                    asynchronous: true; cache: true; smooth: true; mipmap: true
+                                    source: modelData.target ? ("image://winicon/" + encodeURIComponent(modelData.target)) : ""
+                                    scale: m3AppTileMa.containsMouse ? 1.10 : 1.0
+                                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                 }
+                                Text {
+                                    width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                                    text: modelData.name || ""
+                                    font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold; color: m3Root.colOnLayer0
+                                }
+                            }
 
-                                MouseArea {
-                                    id: m3AppTileMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        const tgt = modelData.target || ""
-                                        const args = modelData.args || ""
-                                        Qt.callLater(() => {
-                                            m3Root.launcherOpen = false
-                                            AppLauncher.launch(tgt, args)
-                                        })
-                                    }
+                            MouseArea {
+                                id: m3AppTileMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const tgt = modelData.target || ""; const args = modelData.args || ""
+                                    Qt.callLater(() => {
+                                        m3Root.launcherOpen = false
+                                        AppLauncher.launch(tgt, args)
+                                    })
                                 }
                             }
                         }
