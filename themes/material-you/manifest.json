@@ -2,7 +2,7 @@
   "id": "material-you",
   "name": "Material You (End-4)",
   "author": "Yuukitake · inspired by end-4",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Dynamic Material 3 tonal UI derived from your wallpaper palette, bundled with Material Symbols icons, clean dark pill bar, rounded bottom dock & M3 desktop widgets.",
   "tags": ["Material 3", "Dynamic Color", "Minimal"],
   "accent": "#86EFAC",
