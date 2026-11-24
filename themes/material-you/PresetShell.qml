@@ -14,8 +14,7 @@ Item {
 
     readonly property int sw: (themeHub && themeHub.screenW > 0) ? themeHub.screenW : 1920
     readonly property int sh: (themeHub && themeHub.screenH > 0) ? themeHub.screenH : 1080
-    readonly property int vx: themeHub ? themeHub.virtMinX : 0
-    readonly property int vy: themeHub ? themeHub.virtMinY : 0
+    readonly property bool compactH: sh < 820
 
     FontLoader {
         id: m3SymbolsFont
@@ -105,15 +104,19 @@ Item {
     }
 
     // =========================================================================
-    // 1. M3 Translucent Top Bar (Reserve Top WorkArea)
+    // 1. M3 Translucent Top Bar (Primary Screen Top WorkArea Reserve)
     // =========================================================================
     PanelWindow {
         id: m3TopBar
         visible: !m3Root.fullscreenActive
-        x: m3Root.vx
-        y: m3Root.vy
-        width: m3Root.sw
-        height: 36
+        readonly property int targetX: 0
+        readonly property int targetY: 0
+        readonly property int targetW: m3Root.sw
+        readonly property int targetH: 36
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         reserveTopBar: !m3Root.fullscreenActive
         reserveEdge: "top"
         reserveHeight: m3Root.fullscreenActive ? 0 : 36
@@ -122,20 +125,23 @@ Item {
         blurTint: m3Root.m3Background
         color: "transparent"
 
-        onWidthChanged: setPanelGeometry(m3Root.vx, m3Root.vy, m3Root.sw, 36)
-        Component.onCompleted: setPanelGeometry(m3Root.vx, m3Root.vy, m3Root.sw, 36)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Rectangle {
             anchors.fill: parent
             color: m3Root.m3Background
-            border.width: 0
 
             Rectangle {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
                 height: 1; color: m3Root.m3Outline
             }
 
-            // Left Section: Launcher + Net/Audio/CPU + Active Window
+            // Left Section: Launcher + Net/Audio + Active Window
             Row {
                 anchors.left: parent.left; anchors.leftMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -201,7 +207,7 @@ Item {
 
                 Rectangle {
                     height: 26
-                    width: Math.min(280, m3ActiveWinTxt.implicitWidth + 20)
+                    width: Math.min(260, m3ActiveWinTxt.implicitWidth + 20)
                     radius: 13
                     color: m3Root.m3PrimaryContainer
                     visible: WindowTracker.activeAppName !== ""
@@ -265,7 +271,7 @@ Item {
                 }
             }
 
-            // Right Section: Media Chip + Quick Panel + Presets Store
+            // Right Section: Media Chip + Presets + Quick Panel
             Row {
                 anchors.right: parent.right; anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -274,7 +280,7 @@ Item {
                 Rectangle {
                     visible: MediaService.hasSession && MediaService.title !== ""
                     height: 26
-                    width: Math.min(240, m3BarMediaTxt.implicitWidth + 42)
+                    width: Math.min(220, m3BarMediaTxt.implicitWidth + 42)
                     radius: 13
                     color: m3Root.m3SurfaceHigh
                     border.width: 1; border.color: m3Root.m3Outline
@@ -291,7 +297,7 @@ Item {
                         Text {
                             id: m3BarMediaTxt
                             anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(180, implicitWidth)
+                            width: Math.min(165, implicitWidth)
                             elide: Text.ElideRight
                             text: MediaService.title
                             font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold
@@ -356,37 +362,47 @@ Item {
         id: m3LeftWidgets
         visible: !m3Root.fullscreenActive
         desktopLayer: true
-        x: m3Root.vx + 18
-        y: m3Root.vy + 50
-        width: 268
-        height: 452
+        readonly property int targetX: 16
+        readonly property int targetY: 48
+        readonly property int targetW: 262
+        readonly property int targetH: m3LeftCol.implicitHeight + 4
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         color: "transparent"
 
-        Component.onCompleted: setPanelGeometry(m3Root.vx + 18, m3Root.vy + 50, 268, 452)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Column {
-            anchors.fill: parent
-            spacing: 12
+            id: m3LeftCol
+            width: parent.width
+            spacing: m3Root.compactH ? 10 : 12
 
             // UserCard
             Rectangle {
                 width: parent.width
-                height: 212
-                radius: 24
+                height: m3Root.compactH ? 190 : 206
+                radius: 22
                 color: m3Root.m3Surface
                 border.width: 1; border.color: m3Root.m3Outline
 
                 Column {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 10
+                    anchors.margins: 14
+                    spacing: m3Root.compactH ? 8 : 10
 
                     Row {
                         width: parent.width
                         spacing: 12
 
                         Rectangle {
-                            width: 56; height: 56; radius: 28
+                            width: 52; height: 52; radius: 26
                             color: m3Root.m3PrimaryContainer
                             border.width: 2; border.color: m3Root.m3Primary
                             clip: true
@@ -400,12 +416,12 @@ Item {
 
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 68
+                            width: parent.width - 64
                             spacing: 2
                             Text {
                                 width: parent.width; elide: Text.ElideRight
                                 text: (WindowTracker.userName || "User") + "@" + (WindowTracker.machineName || "PC")
-                                font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold
+                                font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold
                                 color: m3Root.m3OnSurface
                             }
                             Text {
@@ -430,7 +446,7 @@ Item {
                         spacing: 8
 
                         Rectangle {
-                            width: parent.width - 88; height: 38; radius: 19
+                            width: parent.width - 84; height: 36; radius: 18
                             color: m3LockMa.containsMouse ? m3Root.m3Primary : m3Root.m3SurfaceBright
                             Row {
                                 anchors.centerIn: parent; spacing: 6
@@ -455,11 +471,11 @@ Item {
                         }
 
                         Rectangle {
-                            width: 38; height: 38; radius: 19
+                            width: 36; height: 36; radius: 18
                             color: m3CfgMa.containsMouse ? m3Root.m3Primary : m3Root.m3SurfaceHigh
                             Text {
                                 anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 18
+                                font.family: m3Root.iconFontName; font.pixelSize: 17
                                 text: m3Root.hasSymbols ? "settings" : "⚙"
                                 color: m3CfgMa.containsMouse ? m3Root.m3OnPrimary : m3Root.m3OnSurface
                             }
@@ -477,11 +493,11 @@ Item {
                         }
 
                         Rectangle {
-                            width: 38; height: 38; radius: 19
+                            width: 36; height: 36; radius: 18
                             color: m3PwrMa.containsMouse ? m3Root.m3Primary : m3Root.m3SurfaceHigh
                             Text {
                                 anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 18
+                                font.family: m3Root.iconFontName; font.pixelSize: 17
                                 text: m3Root.hasSymbols ? "power_settings_new" : "⏻"
                                 color: m3PwrMa.containsMouse ? m3Root.m3OnPrimary : m3Root.m3OnSurface
                             }
@@ -493,15 +509,14 @@ Item {
                         }
                     }
 
-                    // Active Preset Switcher Quick Strip
                     Rectangle {
-                        width: parent.width; height: 34; radius: 17
+                        width: parent.width; height: 32; radius: 16
                         color: m3SwitchMa.containsMouse ? m3Root.m3PrimaryContainer : m3Root.m3Background
                         border.width: 1; border.color: m3Root.m3Outline
                         Text {
                             anchors.centerIn: parent
-                            text: "Palette: " + (m3Root.themeHub ? m3Root.themeHub.bandName : "Dynamic") + " · Switch Preset"
-                            font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold
+                            text: "Switch Preset"
+                            font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold
                             color: m3Root.m3Primary
                         }
                         MouseArea {
@@ -523,15 +538,15 @@ Item {
             // World Clock Card
             Rectangle {
                 width: parent.width
-                height: 228
-                radius: 24
+                height: m3Root.compactH ? 202 : 216
+                radius: 22
                 color: m3Root.m3Surface
                 border.width: 1; border.color: m3Root.m3Outline
 
                 Column {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 8
+                    anchors.margins: 14
+                    spacing: 6
 
                     Row {
                         width: parent.width; spacing: 6
@@ -544,7 +559,7 @@ Item {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: WeatherService.city || "Local Time"
-                            font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.DemiBold
+                            font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
                             color: m3Root.m3OnSurfaceVariant
                         }
                     }
@@ -553,7 +568,7 @@ Item {
                         width: parent.width
                         horizontalAlignment: Text.AlignRight
                         text: Qt.formatDateTime(m3Root.nowDate, "hh:mm AP")
-                        font.family: "Segoe UI"; font.pixelSize: 32; font.weight: Font.Bold
+                        font.family: "Segoe UI"; font.pixelSize: 28; font.weight: Font.Bold
                         color: m3Root.m3OnSurface
                     }
 
@@ -571,18 +586,18 @@ Item {
                         width: parent.width
                         columns: 2
                         columnSpacing: 10
-                        rowSpacing: 8
+                        rowSpacing: 6
 
                         Repeater {
                             model: [
-                                { city: "Tokyo", tz: "UTC+9", off: 9 },
-                                { city: "Seoul", tz: "UTC+9", off: 9 },
-                                { city: "London", tz: "UTC+0", off: 0 },
-                                { city: "New York", tz: "UTC-5", off: -5 }
+                                { city: "Tokyo", tz: "+9", off: 9 },
+                                { city: "Seoul", tz: "+9", off: 9 },
+                                { city: "London", tz: "+0", off: 0 },
+                                { city: "New York", tz: "-5", off: -5 }
                             ]
                             delegate: Column {
                                 required property var modelData
-                                width: (m3LeftWidgets.width - 44) * 0.5
+                                width: (m3LeftWidgets.targetW - 38) * 0.5
                                 spacing: 1
                                 Row {
                                     width: parent.width; spacing: 4
@@ -591,7 +606,7 @@ Item {
                                 }
                                 Text {
                                     text: m3Root.fmtTime(m3Root.nowDate, modelData.off)
-                                    font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold
+                                    font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold
                                     color: m3Root.m3OnSurface
                                 }
                             }
@@ -609,38 +624,47 @@ Item {
         id: m3RightWidgets
         visible: !m3Root.fullscreenActive
         desktopLayer: true
-        x: m3Root.vx + m3Root.sw - 344
-        y: m3Root.vy + 110
-        width: 324
-        height: 560
+        readonly property int targetW: 312
+        readonly property int targetH: m3RightCol.implicitHeight + 4
+        readonly property int targetX: Math.max(290, m3Root.sw - targetW - 18)
+        readonly property int targetY: m3Root.compactH ? 48 : Math.max(54, m3Root.sh - targetH - 86)
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         color: "transparent"
 
-        onXChanged: setPanelGeometry(m3Root.vx + m3Root.sw - 344, m3Root.vy + 110, 324, 560)
-        Component.onCompleted: setPanelGeometry(m3Root.vx + m3Root.sw - 344, m3Root.vy + 110, 324, 560)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Column {
-            anchors.fill: parent
-            spacing: 12
+            id: m3RightCol
+            width: parent.width
+            spacing: m3Root.compactH ? 8 : 10
 
             // Stacked Bold M3 Clock + Date Pill
             Item {
                 width: parent.width
-                height: 164
+                height: m3Root.compactH ? 128 : 148
 
                 Column {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: -14
+                    spacing: m3Root.compactH ? -14 : -16
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: Qt.formatDateTime(m3Root.nowDate, "HH")
-                        font.family: "Segoe UI"; font.pixelSize: 56; font.weight: Font.Black
+                        font.family: "Segoe UI"; font.pixelSize: m3Root.compactH ? 46 : 54; font.weight: Font.Black
                         color: m3Root.m3Primary
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: Qt.formatDateTime(m3Root.nowDate, "mm")
-                        font.family: "Segoe UI"; font.pixelSize: 56; font.weight: Font.Black
+                        font.family: "Segoe UI"; font.pixelSize: m3Root.compactH ? 46 : 54; font.weight: Font.Black
                         color: m3Root.m3OnSurface
                     }
                 }
@@ -648,7 +672,7 @@ Item {
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
-                    width: 78; height: 46; radius: 14
+                    width: 74; height: 42; radius: 13
                     color: m3Root.m3SurfaceHigh
                     border.width: 1; border.color: m3Root.m3Outline
                     Column {
@@ -663,7 +687,7 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: Qt.formatDateTime(m3Root.nowDate, "dd")
-                            font.family: "Segoe UI"; font.pixelSize: 20; font.weight: Font.Black
+                            font.family: "Segoe UI"; font.pixelSize: 18; font.weight: Font.Black
                             color: m3Root.m3OnSurface
                         }
                     }
@@ -673,18 +697,18 @@ Item {
             // Media Player Card
             Rectangle {
                 width: parent.width
-                height: 114
-                radius: 24
+                height: m3Root.compactH ? 96 : 108
+                radius: 22
                 color: m3Root.m3Surface
                 border.width: 1; border.color: m3Root.m3Outline
 
                 Row {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
+                    anchors.margins: 10
+                    spacing: 10
 
                     Rectangle {
-                        width: 90; height: 90; radius: 18
+                        width: parent.height; height: parent.height; radius: 16
                         color: m3Root.m3SurfaceHigh
                         clip: true
                         Image {
@@ -697,29 +721,29 @@ Item {
                         Text {
                             visible: MediaService.artUrl === ""
                             anchors.centerIn: parent
-                            font.family: m3Root.iconFontName; font.pixelSize: 32
+                            font.family: m3Root.iconFontName; font.pixelSize: 28
                             text: m3Root.hasSymbols ? "music_note" : "♫"
                             color: m3Root.m3Primary
                         }
                     }
 
                     Item {
-                        width: parent.width - 102
-                        height: 90
+                        width: parent.width - parent.height - 10
+                        height: parent.height
 
                         Column {
                             anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-                            spacing: 2
+                            spacing: 1
                             Text {
                                 width: parent.width; elide: Text.ElideRight
                                 text: MediaService.hasSession && MediaService.title !== "" ? MediaService.title : "Nothing Playing"
-                                font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold
+                                font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold
                                 color: m3Root.m3OnSurface
                             }
                             Text {
                                 width: parent.width; elide: Text.ElideRight
                                 text: MediaService.hasSession && MediaService.artist !== "" ? MediaService.artist : "Play audio from any app"
-                                font.family: "Segoe UI"; font.pixelSize: 12
+                                font.family: "Segoe UI"; font.pixelSize: 11
                                 color: m3Root.m3OnSurfaceVariant
                             }
                         }
@@ -727,15 +751,15 @@ Item {
                         Row {
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
-                            spacing: 8
+                            spacing: 6
 
                             Rectangle {
-                                width: 32; height: 32; radius: 16
+                                width: 30; height: 30; radius: 15
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: m3PrevMa.containsMouse ? m3Root.m3SurfaceBright : m3Root.m3SurfaceHigh
                                 Text {
                                     anchors.centerIn: parent
-                                    font.family: m3Root.iconFontName; font.pixelSize: 18
+                                    font.family: m3Root.iconFontName; font.pixelSize: 17
                                     text: m3Root.hasSymbols ? "skip_previous" : "⏮"
                                     color: m3Root.m3OnSurface
                                 }
@@ -746,11 +770,11 @@ Item {
                             }
 
                             Rectangle {
-                                width: 42; height: 42; radius: 14
+                                width: 38; height: 38; radius: 13
                                 color: m3Root.m3Primary
                                 Text {
                                     anchors.centerIn: parent
-                                    font.family: m3Root.iconFontName; font.pixelSize: 22
+                                    font.family: m3Root.iconFontName; font.pixelSize: 20
                                     text: m3Root.hasSymbols ? (MediaService.isPlaying ? "pause" : "play_arrow") : (MediaService.isPlaying ? "❚❚" : "▶")
                                     color: m3Root.m3OnPrimary
                                 }
@@ -761,12 +785,12 @@ Item {
                             }
 
                             Rectangle {
-                                width: 32; height: 32; radius: 16
+                                width: 30; height: 30; radius: 15
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: m3NextMa.containsMouse ? m3Root.m3SurfaceBright : m3Root.m3SurfaceHigh
                                 Text {
                                     anchors.centerIn: parent
-                                    font.family: m3Root.iconFontName; font.pixelSize: 18
+                                    font.family: m3Root.iconFontName; font.pixelSize: 17
                                     text: m3Root.hasSymbols ? "skip_next" : "⏭"
                                     color: m3Root.m3OnSurface
                                 }
@@ -783,35 +807,35 @@ Item {
             // Weather Card
             Rectangle {
                 width: parent.width
-                height: 112
-                radius: 24
+                height: m3Root.compactH ? 96 : 106
+                radius: 22
                 color: m3Root.m3Surface
                 border.width: 1; border.color: m3Root.m3Outline
 
                 Column {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 10
+                    anchors.margins: 13
+                    spacing: 6
 
                     Row {
                         width: parent.width
-                        spacing: 12
+                        spacing: 10
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: WeatherService.ready ? (WeatherService.temperature + "°C") : "--°C"
-                            font.family: "Segoe UI"; font.pixelSize: 34; font.weight: Font.Bold
+                            font.family: "Segoe UI"; font.pixelSize: m3Root.compactH ? 28 : 32; font.weight: Font.Bold
                             color: m3Root.m3OnSurface
                         }
 
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 135
-                            spacing: 2
+                            width: parent.width - 125
+                            spacing: 1
                             Text {
                                 width: parent.width; elide: Text.ElideRight
                                 text: WeatherService.conditionText || "Fetching weather..."
-                                font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.DemiBold
+                                font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold
                                 color: m3Root.m3OnSurface
                             }
                             Text {
@@ -823,12 +847,12 @@ Item {
                         }
 
                         Rectangle {
-                            width: 40; height: 40; radius: 20
+                            width: 36; height: 36; radius: 18
                             anchors.verticalCenter: parent.verticalCenter
                             color: m3Root.m3PrimaryContainer
                             Text {
                                 anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 22
+                                font.family: m3Root.iconFontName; font.pixelSize: 20
                                 text: m3Root.hasSymbols ? "cloud" : "☁"
                                 color: m3Root.m3Primary
                             }
@@ -837,9 +861,9 @@ Item {
 
                     Row {
                         width: parent.width
-                        spacing: 16
+                        spacing: 14
                         Text {
-                            text: "Humidity " + WeatherService.humidity + "%"
+                            text: "Hum " + WeatherService.humidity + "%"
                             font.family: "Consolas"; font.pixelSize: 11; color: m3Root.m3OnSurfaceVariant
                         }
                         Text {
@@ -862,8 +886,8 @@ Item {
             // Bottom System Gauges Trio (CPU / RAM / BAT or TEMP)
             Row {
                 width: parent.width
-                height: 114
-                spacing: 10
+                height: m3Root.compactH ? 96 : 108
+                spacing: 8
 
                 Repeater {
                     model: [
@@ -888,19 +912,19 @@ Item {
                     ]
                     delegate: Rectangle {
                         required property var modelData
-                        width: (324 - 20) / 3
-                        height: 114
-                        radius: 22
+                        width: (m3RightWidgets.targetW - 16) / 3
+                        height: m3Root.compactH ? 96 : 108
+                        radius: 20
                         color: m3Root.m3Surface
                         border.width: 1; border.color: m3Root.m3Outline
 
                         Rectangle {
-                            width: 34; height: 34; radius: 17
-                            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 10
+                            width: 30; height: 30; radius: 15
+                            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 9
                             color: m3Root.m3PrimaryContainer
                             Text {
                                 anchors.centerIn: parent
-                                font.family: m3Root.iconFontName; font.pixelSize: 18
+                                font.family: m3Root.iconFontName; font.pixelSize: 16
                                 text: m3Root.hasSymbols ? modelData.icon : "●"
                                 color: m3Root.m3Primary
                             }
@@ -908,17 +932,17 @@ Item {
 
                         Column {
                             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-                            anchors.margins: 12
-                            spacing: 4
+                            anchors.margins: 10
+                            spacing: 3
 
                             Text {
                                 text: modelData.val
-                                font.family: "Segoe UI"; font.pixelSize: 22; font.weight: Font.Bold
+                                font.family: "Segoe UI"; font.pixelSize: 20; font.weight: Font.Bold
                                 color: m3Root.m3OnSurface
                             }
                             Text {
                                 text: modelData.label
-                                font.family: "Consolas"; font.pixelSize: 11; font.weight: Font.Bold
+                                font.family: "Consolas"; font.pixelSize: 10; font.weight: Font.Bold
                                 color: m3Root.m3OnSurfaceVariant
                             }
                             Rectangle {
@@ -950,17 +974,21 @@ Item {
         color: "transparent"
 
         readonly property int tileCount: m3Root.m3DockApps.length + 1
-        readonly property int dockW: Math.max(160, Math.min(m3Root.sw - 80, tileCount * 48 + 28))
-        readonly property int dockH: 58
+        readonly property int targetW: Math.max(160, Math.min(m3Root.sw - 80, tileCount * 48 + 28))
+        readonly property int targetH: 58
+        readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
+        readonly property int targetY: Math.max(48, m3Root.sh - targetH - 12)
 
-        x: m3Root.vx + Math.round((m3Root.sw - dockW) * 0.5)
-        y: m3Root.vy + m3Root.sh - dockH - 12
-        width: dockW
-        height: dockH
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
 
-        onXChanged: setPanelGeometry(x, y, width, height)
-        onWidthChanged: setPanelGeometry(x, y, width, height)
-        Component.onCompleted: setPanelGeometry(x, y, width, height)
+        x: targetX; y: targetY; width: targetW; height: targetH
+
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         onFilesDropped: files => {
             const list = files

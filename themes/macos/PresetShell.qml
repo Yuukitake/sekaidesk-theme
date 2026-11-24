@@ -14,8 +14,6 @@ Item {
 
     readonly property int sw: (themeHub && themeHub.screenW > 0) ? themeHub.screenW : 1920
     readonly property int sh: (themeHub && themeHub.screenH > 0) ? themeHub.screenH : 1080
-    readonly property int vx: themeHub ? themeHub.virtMinX : 0
-    readonly property int vy: themeHub ? themeHub.virtMinY : 0
     readonly property bool isDark: themeHub ? themeHub.phoneDarkMode : true
 
     readonly property color barBg: isDark ? Qt.rgba(0.11, 0.12, 0.16, 0.72) : Qt.rgba(0.95, 0.96, 0.98, 0.74)
@@ -113,10 +111,14 @@ Item {
     PanelWindow {
         id: macTopBar
         visible: !macRoot.fullscreenActive
-        x: macRoot.vx
-        y: macRoot.vy
-        width: macRoot.sw
-        height: 28
+        readonly property int targetX: 0
+        readonly property int targetY: 0
+        readonly property int targetW: macRoot.sw
+        readonly property int targetH: 28
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         reserveTopBar: !macRoot.fullscreenActive
         reserveEdge: "top"
         reserveHeight: macRoot.fullscreenActive ? 0 : 28
@@ -125,8 +127,12 @@ Item {
         blurTint: macRoot.barBg
         color: "transparent"
 
-        onWidthChanged: setPanelGeometry(macRoot.vx, macRoot.vy, macRoot.sw, 28)
-        Component.onCompleted: setPanelGeometry(macRoot.vx, macRoot.vy, macRoot.sw, 28)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Rectangle {
             anchors.fill: parent
@@ -222,13 +228,12 @@ Item {
                 }
             }
 
-            // Right: Status Icons + Spotlight + Control Center + Clock
+            // Right: Presets + Status Icons + Spotlight + Control Center + Clock
             Row {
                 anchors.right: parent.right; anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 10
 
-                // Presets Quick Pill
                 Rectangle {
                     width: macPresetBtnTxt.implicitWidth + 16; height: 20; radius: 6
                     anchors.verticalCenter: parent.verticalCenter
@@ -337,26 +342,35 @@ Item {
         id: macWidgetsLeft
         visible: !macRoot.fullscreenActive && !macRoot.launchpadOpen
         desktopLayer: true
-        x: macRoot.vx + 22
-        y: macRoot.vy + 46
-        width: 280
-        height: 332
+        readonly property int targetX: 20
+        readonly property int targetY: 42
+        readonly property int targetW: 274
+        readonly property int targetH: 326
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         color: "transparent"
 
-        Component.onCompleted: setPanelGeometry(macRoot.vx + 22, macRoot.vy + 46, 280, 332)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Column {
             anchors.fill: parent
-            spacing: 14
+            spacing: 12
 
             // macOS Clock & Calendar Glass Widget
             Rectangle {
-                width: parent.width; height: 158; radius: 24
+                width: parent.width; height: 154; radius: 24
                 color: macRoot.glassCardBg
                 border.width: 1; border.color: macRoot.glassBorder
 
                 Column {
-                    anchors.fill: parent; anchors.margins: 18; spacing: 4
+                    anchors.fill: parent; anchors.margins: 16; spacing: 4
                     Text {
                         text: Qt.formatDateTime(macRoot.nowDate, "dddd, MMMM d").toUpperCase()
                         font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Black
@@ -364,7 +378,7 @@ Item {
                     }
                     Text {
                         text: Qt.formatDateTime(macRoot.nowDate, "HH:mm")
-                        font.family: "Segoe UI"; font.pixelSize: 52; font.weight: Font.Light
+                        font.family: "Segoe UI"; font.pixelSize: 50; font.weight: Font.Light
                         color: macRoot.barInk
                     }
                     Text {
@@ -385,14 +399,14 @@ Item {
                 border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.25)
 
                 Column {
-                    anchors.fill: parent; anchors.margins: 18; spacing: 6
+                    anchors.fill: parent; anchors.margins: 16; spacing: 6
                     Text {
                         text: WeatherService.city || "Local Weather"
                         font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: "#FFFFFF"
                     }
                     Text {
                         text: WeatherService.ready ? (WeatherService.temperature + "°") : "--°"
-                        font.family: "Segoe UI"; font.pixelSize: 44; font.weight: Font.Light; color: "#FFFFFF"
+                        font.family: "Segoe UI"; font.pixelSize: 42; font.weight: Font.Light; color: "#FFFFFF"
                     }
                     Text {
                         text: WeatherService.conditionText || "Click to refresh"
@@ -416,29 +430,37 @@ Item {
         id: macWidgetsRight
         visible: !macRoot.fullscreenActive && !macRoot.launchpadOpen
         desktopLayer: true
-        x: macRoot.vx + macRoot.sw - 302
-        y: macRoot.vy + 46
-        width: 280
-        height: 312
+        readonly property int targetW: 274
+        readonly property int targetH: 306
+        readonly property int targetX: Math.max(310, macRoot.sw - targetW - 20)
+        readonly property int targetY: 42
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         color: "transparent"
 
-        onXChanged: setPanelGeometry(macRoot.vx + macRoot.sw - 302, macRoot.vy + 46, 280, 312)
-        Component.onCompleted: setPanelGeometry(macRoot.vx + macRoot.sw - 302, macRoot.vy + 46, 280, 312)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         Column {
             anchors.fill: parent
-            spacing: 14
+            spacing: 12
 
             // macOS Now Playing Glass Widget
             Rectangle {
-                width: parent.width; height: 142; radius: 24
+                width: parent.width; height: 140; radius: 24
                 color: macRoot.glassCardBg
                 border.width: 1; border.color: macRoot.glassBorder
 
                 Row {
-                    anchors.fill: parent; anchors.margins: 14; spacing: 12
+                    anchors.fill: parent; anchors.margins: 12; spacing: 12
                     Rectangle {
-                        width: 96; height: 114; radius: 16
+                        width: 94; height: 114; radius: 16
                         color: Qt.rgba(1, 1, 1, 0.08); clip: true
                         Image {
                             anchors.fill: parent; visible: MediaService.artUrl !== ""
@@ -451,7 +473,7 @@ Item {
                     }
 
                     Item {
-                        width: parent.width - 108; height: 114
+                        width: parent.width - 106; height: 114
                         Column {
                             anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; spacing: 2
                             Text {
@@ -493,7 +515,7 @@ Item {
 
             // macOS Activity Monitor Glass Widget
             Rectangle {
-                width: parent.width; height: 156; radius: 24
+                width: parent.width; height: 154; radius: 24
                 color: macRoot.glassCardBg
                 border.width: 1; border.color: macRoot.glassBorder
 
@@ -513,7 +535,7 @@ Item {
                         ]
                         delegate: Column {
                             required property var modelData
-                            width: 248; spacing: 4
+                            width: 242; spacing: 4
                             Row {
                                 width: parent.width
                                 Text { text: modelData.lbl; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.DemiBold; color: macRoot.barInk; width: parent.width - 42 }
@@ -531,7 +553,7 @@ Item {
     }
 
     // =========================================================================
-    // 3. macOS Frosted Glass Cosine Magnification Dock (MyDockFinder Inspired)
+    // 3. macOS Frosted Glass Cosine Magnification Dock
     // =========================================================================
     PanelWindow {
         id: macDockWin
@@ -548,7 +570,7 @@ Item {
         readonly property int dividerW: 8
         readonly property int shelfPadX: 14
         readonly property int shelfH: 66
-        readonly property int winH: 132
+        readonly property int targetH: 132
         readonly property real waveRadius: 148.0
 
         property bool dockHovered: macDockHover.hovered
@@ -593,33 +615,37 @@ Item {
             return { total: Math.max(120, cpos), sizes: sizes, offsets: offsets }
         }
 
-        readonly property int winW: Math.min(macRoot.sw - 32, Math.round(idleExtent + 160))
+        readonly property int targetW: Math.min(macRoot.sw - 32, Math.round(idleExtent + 160))
         readonly property int shelfW: Math.round(dockLayout.total + shelfPadX * 2)
-        readonly property int shelfX: Math.round((winW - shelfW) * 0.5)
-        readonly property int shelfY: winH - shelfH - 8
+        readonly property int shelfX: Math.round((targetW - shelfW) * 0.5)
+        readonly property int shelfY: targetH - shelfH - 8
+        readonly property int targetX: Math.round((macRoot.sw - targetW) * 0.5)
+        readonly property int targetY: Math.max(40, macRoot.sh - targetH)
 
-        x: macRoot.vx + Math.round((macRoot.sw - winW) * 0.5)
-        y: macRoot.vy + macRoot.sh - winH
-        width: winW
-        height: winH
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
 
         blurInsetX: Math.max(0, shelfX)
         blurInsetY: shelfY
-        blurInsetRight: Math.max(0, winW - (shelfX + shelfW))
+        blurInsetRight: Math.max(0, targetW - (shelfX + shelfW))
         blurInsetBottom: 8
 
         mask: [
             {
                 x: Math.max(0, shelfX - 18),
                 y: dockHovered ? 0 : Math.max(0, shelfY - 4),
-                width: Math.min(winW, shelfW + 36),
-                height: dockHovered ? winH : (shelfH + 10)
+                width: Math.min(targetW, shelfW + 36),
+                height: dockHovered ? targetH : (shelfH + 10)
             }
         ]
 
-        onXChanged: setPanelGeometry(x, y, width, height)
-        onWidthChanged: setPanelGeometry(x, y, width, height)
-        Component.onCompleted: setPanelGeometry(x, y, width, height)
+        Component.onCompleted: syncGeo()
+        onTargetXChanged: syncGeo()
+        onTargetYChanged: syncGeo()
+        onTargetWChanged: syncGeo()
+        onTargetHChanged: syncGeo()
+        onVisibleChanged: if (visible) syncGeo()
 
         onFilesDropped: files => {
             const list = files
@@ -665,6 +691,7 @@ Item {
                 Repeater {
                     model: macRoot.macDockItems
                     delegate: Item {
+                        id: macDelegateRoot
                         required property var modelData
                         required property int index
 
@@ -678,7 +705,6 @@ Item {
                             NumberAnimation { target: macDelegateRoot; property: "bounceY"; to: 0; duration: 240; easing.type: Easing.OutBounce }
                         }
 
-                        id: macDelegateRoot
                         x: off
                         y: (macDockWin.shelfH - sz) - 9 + bounceY
                         width: sz
@@ -830,18 +856,26 @@ Item {
     PanelWindow {
         id: macLaunchpadWin
         visible: macRoot.launchpadOpen && !macRoot.fullscreenActive
-        x: macRoot.vx
-        y: macRoot.vy
-        width: macRoot.sw
-        height: macRoot.sh
+        readonly property int targetX: 0
+        readonly property int targetY: 0
+        readonly property int targetW: macRoot.sw
+        readonly property int targetH: macRoot.sh
+
+        function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        x: targetX; y: targetY; width: targetW; height: targetH
         blurBehind: true
         blurRadius: 48
         blurTint: Qt.rgba(0.05, 0.06, 0.10, 0.72)
         color: "transparent"
 
+        onTargetXChanged: if (visible) syncGeo()
+        onTargetYChanged: if (visible) syncGeo()
+        onTargetWChanged: if (visible) syncGeo()
+        onTargetHChanged: if (visible) syncGeo()
         onVisibleChanged: {
             if (visible) {
-                setPanelGeometry(macRoot.vx, macRoot.vy, macRoot.sw, macRoot.sh)
+                syncGeo()
                 macSearchInput.forceActiveFocus()
             } else {
                 macRoot.launchpadQuery = ""

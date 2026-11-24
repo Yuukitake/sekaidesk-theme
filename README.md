@@ -6,10 +6,10 @@ Presets completely replace the desktop shell layout (Top Bar, Dock, Desktop Widg
 
 ## Available Presets
 
-| ID | Name | Inspired By | License |
-| --- | --- | --- | --- |
-| `material-you` | **Material You (End-4)** | [`pctrade/end4-pC`](https://github.com/pctrade/end4-pC) | GPL-3.0 |
-| `macos` | **macOS Sequoia (MyDockFinder)** | MyDockFinder RE analysis | MIT |
+| ID | Name | License |
+| --- | --- | --- |
+| `material-you` | **Material You (End-4)** | GPL-3.0 |
+| `macos` | **macOS Sequoia** | MIT |
 
 ## Installation
 

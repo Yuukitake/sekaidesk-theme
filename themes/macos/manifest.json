@@ -1,8 +1,8 @@
 {
   "id": "macos",
-  "name": "macOS Sequoia (MyDockFinder)",
-  "author": "Yuukitake · MyDockFinder REA",
-  "version": "1.0.0",
+  "name": "macOS Sequoia",
+  "author": "Yuukitake",
+  "version": "1.0.1",
   "description": "macOS-style Finder Top Menu Bar, frosted glass Cosine Magnification Dock with bounce & running dots, fullscreen blurred Launchpad, and Sequoia glass desktop widgets.",
   "tags": ["macOS", "Glass", "Launchpad"],
   "accent": "#60A5FA",
