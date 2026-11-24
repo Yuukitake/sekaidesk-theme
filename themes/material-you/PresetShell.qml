@@ -1159,6 +1159,18 @@ Item {
                 if (m3Root.sidebarOpen) {
                     m3SidebarWin.focusActivate()
                     sbCard.forceActiveFocus()
+                    sbFocusRetryTimer.restart()
+                }
+            }
+        }
+        Timer {
+            id: sbFocusRetryTimer
+            interval: 120
+            repeat: false
+            onTriggered: {
+                if (m3Root.sidebarOpen && m3Root.wifiPwSsid === "" && !sbCard.activeFocus) {
+                    m3SidebarWin.focusActivate()
+                    sbCard.forceActiveFocus()
                 }
             }
         }
@@ -1168,10 +1180,6 @@ Item {
         onTargetYChanged: syncGeo()
         onTargetWChanged: syncGeo()
         onTargetHChanged: syncGeo()
-        onActiveChanged: {
-            if (active && m3Root.sidebarOpen && m3Root.wifiPwSsid === "")
-                sbCard.forceActiveFocus()
-        }
         onVisibleChanged: {
             if (visible) {
                 syncGeo()
@@ -1180,6 +1188,7 @@ Item {
                 sbFocusTimer.restart()
             } else {
                 sbFocusTimer.stop()
+                sbFocusRetryTimer.stop()
                 m3Root.sidebarSubView = ""
                 m3Root.wifiPwSsid = ""
                 m3Root.wifiPwVisible = false
@@ -2018,6 +2027,18 @@ Item {
                 if (m3Root.launcherOpen) {
                     m3LauncherWin.focusActivate()
                     m3SearchInput.forceActiveFocus()
+                    launcherFocusRetryTimer.restart()
+                }
+            }
+        }
+        Timer {
+            id: launcherFocusRetryTimer
+            interval: 120
+            repeat: false
+            onTriggered: {
+                if (m3Root.launcherOpen && !m3SearchInput.activeFocus) {
+                    m3LauncherWin.focusActivate()
+                    m3SearchInput.forceActiveFocus()
                 }
             }
         }
@@ -2027,10 +2048,6 @@ Item {
         onTargetYChanged: syncGeo()
         onTargetWChanged: syncGeo()
         onTargetHChanged: syncGeo()
-        onActiveChanged: {
-            if (active && m3Root.launcherOpen)
-                m3SearchInput.forceActiveFocus()
-        }
         onVisibleChanged: {
             if (visible) {
                 syncGeo()
@@ -2039,6 +2056,7 @@ Item {
                 launcherFocusTimer.restart()
             } else {
                 launcherFocusTimer.stop()
+                launcherFocusRetryTimer.stop()
                 searchDebounceTimer.stop()
                 m3SearchInput.text = ""
                 m3Root.launcherQuery = ""
