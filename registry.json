@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "themes": [
+    {
+      "id": "material-you",
+      "name": "Material You (End-4)",
+      "author": "Yuukitake · inspired by end-4",
+      "version": "1.0.0",
+      "description": "Dynamic Material 3 tonal UI derived from your wallpaper palette, bundled with Material Symbols icons, clean dark pill bar, rounded bottom dock & M3 desktop widgets.",
+      "tags": [
+        "Material 3",
+        "Dynamic Color",
+        "Minimal"
+      ],
+      "accent": "#86EFAC",
+      "previewColorA": "#1F3B2D",
+      "previewColorB": "#86EFAC",
+      "license": "GPL-3.0",
+      "downloadUrl": "https://raw.githubusercontent.com/Yuukitake/sekaidesk-theme/main/packs/material-you.zip",
+      "sizeKb": 587
+    },
+    {
+      "id": "macos",
+      "name": "macOS Sequoia (MyDockFinder)",
+      "author": "Yuukitake · MyDockFinder REA",
+      "version": "1.0.0",
+      "description": "macOS-style Finder Top Menu Bar, frosted glass Cosine Magnification Dock with bounce & running dots, fullscreen blurred Launchpad, and Sequoia glass desktop widgets.",
+      "tags": [
+        "macOS",
+        "Glass",
+        "Launchpad"
+      ],
+      "accent": "#60A5FA",
+      "previewColorA": "#1D4ED8",
+      "previewColorB": "#93C5FD",
+      "license": "MIT",
+      "downloadUrl": "https://raw.githubusercontent.com/Yuukitake/sekaidesk-theme/main/packs/macos.zip",
+      "sizeKb": 8
+    }
+  ]
+}
