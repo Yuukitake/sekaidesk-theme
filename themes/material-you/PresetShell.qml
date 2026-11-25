@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import SekaiDesk
+import "components"
 
 Item {
     id: m3Root
@@ -11,16 +12,20 @@ Item {
     property string presetDirUrl: ""
     property bool quickPanelOpen: false
 
-    // Tell SekaiDesk shell this preset owns QuickPanel (Ctrl+Alt+A) & App Launcher (Alt+Space)
+    // Tell SekaiDesk shell this preset owns QuickPanel, Launcher, OSD & Notifications
     readonly property bool handlesQuickPanel: true
     readonly property bool handlesLauncher: true
+    readonly property bool handlesOsd: true
+    readonly property bool handlesNotifications: true
 
     signal requestQuickPanel()
     signal requestLauncher()
 
     property bool sidebarOpen: false
     property double sidebarClosedAt: 0
-    property string sidebarSubView: "" // "" | "wifi" | "bt" | "widgets"
+    property string sidebarSubView: "" // "" | "wifi" | "bt" | "audio" | "display" | "widgets"
+    property string sbBottomTab: "notifs" // "notifs" | "calendar" | "todo" | "pomo"
+    property int selMonIdx: 0
     property string wifiPwSsid: ""
     property bool wifiPwVisible: false
 
@@ -39,17 +44,92 @@ Item {
     property bool wallpaperPickerOpen: false
     property double wallpaperClosedAt: 0
 
+    property bool sessionScreenOpen: false
+    property double sessionClosedAt: 0
+
+    property bool mediaPopupOpen: false
+    property double mediaPopupClosedAt: 0
+
+    property bool clipboardPopupOpen: false
+    property double clipboardClosedAt: 0
+
     property int widgetResetGen: 0
     property int widgetVisGen: 0
 
-    function toggleQuickPanel(fromHotkey) {
+    // Persistent Todo List + Pomodoro state
+    property var m3Todos: {
+        try {
+            const raw = ConfigStore.stringValue("m3.todos", "[]")
+            const parsed = JSON.parse(raw)
+            return Array.isArray(parsed) ? parsed : []
+        } catch (e) { return [] }
+    }
+    function saveTodos(list) {
+        m3Todos = list
+        ConfigStore.set("m3.todos", JSON.stringify(list))
+    }
+    function addTodo(text) {
+        const t = (text || "").trim()
+        if (t === "") return
+        const next = m3Todos.slice(0)
+        next.unshift({ text: t, done: false })
+        saveTodos(next)
+    }
+    function toggleTodo(idx) {
+        if (idx < 0 || idx >= m3Todos.length) return
+        const next = m3Todos.slice(0)
+        next[idx] = { text: next[idx].text, done: !next[idx].done }
+        saveTodos(next)
+    }
+    function removeTodo(idx) {
+        if (idx < 0 || idx >= m3Todos.length) return
+        const next = m3Todos.slice(0)
+        next.splice(idx, 1)
+        saveTodos(next)
+    }
+
+    property int pomoSeconds: 25 * 60
+    property bool pomoRunning: false
+    property bool pomoBreak: false
+    function fmtPomo(sec) {
+        const s = Math.max(0, Math.floor(sec))
+        const m = Math.floor(s / 60)
+        const r = s % 60
+        return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r
+    }
+    Timer {
+        id: m3PomoTimer
+        interval: 1000
+        repeat: true
+        running: m3Root.pomoRunning
+        onTriggered: {
+            if (m3Root.pomoSeconds > 0) {
+                m3Root.pomoSeconds -= 1
+            } else {
+                m3Root.pomoRunning = false
+                m3Root.pomoBreak = !m3Root.pomoBreak
+                m3Root.pomoSeconds = m3Root.pomoBreak ? 5 * 60 : 25 * 60
+            }
+        }
+    }
+
+    function closeAllPopups() {
+        sidebarOpen = false
         launcherOpen = false
         weatherPopupOpen = false
         calendarPopupOpen = false
         wallpaperPickerOpen = false
-        if (!fromHotkey && !sidebarOpen && (Date.now() - sidebarClosedAt) < 280)
+        sessionScreenOpen = false
+        mediaPopupOpen = false
+        clipboardPopupOpen = false
+    }
+
+    function toggleQuickPanel(fromHotkey) {
+        const wasOpen = sidebarOpen
+        closeAllPopups()
+        if (!fromHotkey && !wasOpen && (Date.now() - sidebarClosedAt) < 280)
             return
-        if (sidebarOpen) {
+        if (wasOpen) {
             sidebarClosedAt = Date.now()
             sidebarOpen = false
         } else {
@@ -58,13 +138,11 @@ Item {
     }
 
     function toggleLauncher(fromHotkey) {
-        sidebarOpen = false
-        weatherPopupOpen = false
-        calendarPopupOpen = false
-        wallpaperPickerOpen = false
-        if (!fromHotkey && !launcherOpen && (Date.now() - launcherClosedAt) < 280)
+        const wasOpen = launcherOpen
+        closeAllPopups()
+        if (!fromHotkey && !wasOpen && (Date.now() - launcherClosedAt) < 280)
             return
-        if (launcherOpen) {
+        if (wasOpen) {
             launcherClosedAt = Date.now()
             launcherOpen = false
         } else {
@@ -73,13 +151,11 @@ Item {
     }
 
     function toggleWeatherPopup() {
-        sidebarOpen = false
-        launcherOpen = false
-        calendarPopupOpen = false
-        wallpaperPickerOpen = false
-        if (!weatherPopupOpen && (Date.now() - weatherClosedAt) < 280)
+        const wasOpen = weatherPopupOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - weatherClosedAt) < 280)
             return
-        if (weatherPopupOpen) {
+        if (wasOpen) {
             weatherClosedAt = Date.now()
             weatherPopupOpen = false
         } else {
@@ -89,13 +165,11 @@ Item {
     }
 
     function toggleCalendarPopup() {
-        sidebarOpen = false
-        launcherOpen = false
-        weatherPopupOpen = false
-        wallpaperPickerOpen = false
-        if (!calendarPopupOpen && (Date.now() - calendarClosedAt) < 280)
+        const wasOpen = calendarPopupOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - calendarClosedAt) < 280)
             return
-        if (calendarPopupOpen) {
+        if (wasOpen) {
             calendarClosedAt = Date.now()
             calendarPopupOpen = false
         } else {
@@ -106,13 +180,11 @@ Item {
     }
 
     function toggleWallpaperPicker() {
-        sidebarOpen = false
-        launcherOpen = false
-        weatherPopupOpen = false
-        calendarPopupOpen = false
-        if (!wallpaperPickerOpen && (Date.now() - wallpaperClosedAt) < 280)
+        const wasOpen = wallpaperPickerOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - wallpaperClosedAt) < 280)
             return
-        if (wallpaperPickerOpen) {
+        if (wasOpen) {
             wallpaperClosedAt = Date.now()
             wallpaperPickerOpen = false
         } else {
@@ -121,9 +193,49 @@ Item {
         }
     }
 
+    function toggleSessionScreen() {
+        const wasOpen = sessionScreenOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - sessionClosedAt) < 280)
+            return
+        if (wasOpen) {
+            sessionClosedAt = Date.now()
+            sessionScreenOpen = false
+        } else {
+            sessionScreenOpen = true
+        }
+    }
+
+    function toggleMediaPopup() {
+        const wasOpen = mediaPopupOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - mediaPopupClosedAt) < 280)
+            return
+        if (wasOpen) {
+            mediaPopupClosedAt = Date.now()
+            mediaPopupOpen = false
+        } else {
+            mediaPopupOpen = true
+        }
+    }
+
+    function toggleClipboardPopup() {
+        const wasOpen = clipboardPopupOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - clipboardClosedAt) < 280)
+            return
+        if (wasOpen) {
+            clipboardClosedAt = Date.now()
+            clipboardPopupOpen = false
+        } else {
+            clipboardPopupOpen = true
+        }
+    }
+
     function isWidgetShown(key) {
         const _v = widgetVisGen
-        return ConfigStore.boolValue("m3.widget." + key + ".visible", true)
+        const defVis = (key !== "calendar" && key !== "notes" && key !== "todo")
+        return ConfigStore.boolValue("m3.widget." + key + ".visible", defVis)
     }
 
     function setWidgetShown(key, on) {
@@ -132,11 +244,12 @@ Item {
     }
 
     function resetWidgetPositions() {
-        const keys = ["userCard", "worldClock", "digitalClock", "media", "weather", "resources"]
+        const keys = ["userCard", "worldClock", "digitalClock", "cookieClock", "media", "weather", "resources", "calendar", "notes", "todo"]
         for (let i = 0; i < keys.length; ++i) {
             ConfigStore.set("m3.widget." + keys[i] + ".x", -9999)
             ConfigStore.set("m3.widget." + keys[i] + ".y", -9999)
-            ConfigStore.set("m3.widget." + keys[i] + ".visible", true)
+            const defVis = (keys[i] !== "calendar" && keys[i] !== "notes" && keys[i] !== "todo")
+            ConfigStore.set("m3.widget." + keys[i] + ".visible", defVis)
         }
         widgetResetGen += 1
         widgetVisGen += 1
@@ -649,13 +762,25 @@ Item {
 
                     Rectangle {
                         height: 22; width: Math.min(185, m3BarMediaLbl.implicitWidth + 28); radius: 11
-                        color: m3Root.colSurfaceVariant
+                        color: (m3Root.mediaPopupOpen || m3BarMediaMa.containsMouse) ? m3Root.colPrimaryContainer : m3Root.colSurfaceVariant
                         Row {
                             anchors.centerIn: parent; spacing: 5
-                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 13; text: m3Root.hasSymbols ? (MediaService.hasSession && MediaService.isPlaying ? "pause" : "music_note") : "♪"; color: m3Root.colPrimary }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 13
+                                text: m3Root.hasSymbols ? (MediaService.hasSession && MediaService.isPlaying ? "pause" : "music_note") : "♪"
+                                color: m3Root.colPrimary
+                                MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.playPause()) }
+                            }
                             Text { id: m3BarMediaLbl; anchors.verticalCenter: parent.verticalCenter; width: Math.min(145, implicitWidth); elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "No media"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.DemiBold; color: m3Root.colOnLayer1 }
                         }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.playPause()) }
+                        MouseArea { id: m3BarMediaMa; anchors.left: parent.left; anchors.leftMargin: 22; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleMediaPopup()) }
+                    }
+
+                    Rectangle {
+                        height: 22; width: 26; radius: 11
+                        color: (m3Root.clipboardPopupOpen || m3BarClipMa.containsMouse) ? m3Root.colPrimary : m3Root.colSurfaceVariant
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 13; text: m3Root.hasSymbols ? "content_paste" : "📋"; color: (m3Root.clipboardPopupOpen || m3BarClipMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        MouseArea { id: m3BarClipMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleClipboardPopup()) }
                     }
 
                     Rectangle {
@@ -1183,6 +1308,11 @@ Item {
         readonly property int targetY: 46
 
         function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+        function fmtSpeed(bps) {
+            const b = Math.max(0, Number(bps) || 0)
+            if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB/s"
+            return Math.round(b / 1024) + " KB/s"
+        }
 
         x: targetX; y: targetY; width: targetW; height: targetH
         blurBehind: false
@@ -1218,6 +1348,7 @@ Item {
         onTargetWChanged: syncGeo()
         onTargetHChanged: syncGeo()
         onVisibleChanged: {
+            SystemControl.setNetSpeedActive(visible)
             if (visible) {
                 syncGeo()
                 focusActivate()
@@ -1278,7 +1409,10 @@ Item {
                         Column {
                             anchors.verticalCenter: parent.verticalCenter; spacing: -1
                             Text { text: "Control Center"; font.family: "Segoe UI"; font.pixelSize: 14; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                            Text { text: "Up • " + (WindowTracker.uptimeText || "0m"); font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1 }
+                            Text {
+                                text: "Up " + (WindowTracker.uptimeText || "0m") + " • ↓ " + m3SidebarWin.fmtSpeed(SystemControl.downloadBps) + " ↑ " + m3SidebarWin.fmtSpeed(SystemControl.uploadBps)
+                                font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1
+                            }
                         }
                     }
 
@@ -1289,14 +1423,13 @@ Item {
                                 { act: "wallpaper", ic: "wallpaper", fb: "🖼" },
                                 { act: "widgets", ic: "widgets", fb: "⊞" },
                                 { act: "settings", ic: "settings", fb: "⚙" },
-                                { act: "lock", ic: "lock", fb: "🔒" },
-                                { act: "sleep", ic: "bedtime", fb: "☾" }
+                                { act: "session", ic: "power_settings_new", fb: "⏻" }
                             ]
                             delegate: Rectangle {
                                 required property var modelData
                                 width: 32; height: 32; radius: 16
                                 color: sbHdrMa.containsMouse ? m3Root.colPrimaryContainer : m3Root.colLayer2
-                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 16; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: m3Root.colOnLayer0 }
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 16; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: modelData.act === "session" ? "#FFB4AB" : m3Root.colOnLayer0 }
                                 MouseArea {
                                     id: sbHdrMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
@@ -1304,8 +1437,7 @@ Item {
                                         Qt.callLater(() => {
                                             if (act === "wallpaper") { m3Root.toggleWallpaperPicker() }
                                             else if (act === "widgets") m3Root.sidebarSubView = "widgets"
-                                            else if (act === "lock") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.lockScreen() }
-                                            else if (act === "sleep") { m3Root.sidebarClosedAt = Date.now(); m3Root.sidebarOpen = false; SystemControl.sleepPc() }
+                                            else if (act === "session") m3Root.toggleSessionScreen()
                                             else if (act === "settings" && m3Root.themeHub) {
                                                 m3Root.sidebarClosedAt = Date.now()
                                                 m3Root.sidebarOpen = false
@@ -1378,10 +1510,10 @@ Item {
 
                     Repeater {
                         model: [
-                            { id: "mute", title: AudioService.masterMuted ? "Muted" : "Sound On", sub: AudioService.masterVolume + "%", active: !AudioService.masterMuted, ic: AudioService.masterMuted ? "volume_off" : "volume_up", fb: "🔊" },
-                            { id: "dock", title: "Auto-Hide Dock", sub: m3Root.dockPinned ? "Pinned" : "Dodge", active: !m3Root.dockPinned, ic: "dock_to_bottom", fb: "▁" },
-                            { id: "widgets", title: "Desktop Widgets", sub: "Toggle & Reset", active: false, ic: "widgets", fb: "⊞" },
-                            { id: "theme", title: "Dark Mode", sub: SystemControl.darkMode ? "Dark" : "Light", active: SystemControl.darkMode, ic: "dark_mode", fb: "☾" }
+                            { id: "game",    title: GameModeService.autoDetect ? "Game ON" : "Game Mode", sub: GameModeService.autoDetect ? "Auto Detect" : "Standby", active: GameModeService.autoDetect, ic: "sports_esports", fb: "🎮" },
+                            { id: "awake",   title: "Keep Awake", sub: SystemControl.keepAwake ? "Screen On" : "Normal", active: SystemControl.keepAwake, ic: "coffee", fb: "☕" },
+                            { id: "theme",   title: "Dark Mode", sub: SystemControl.darkMode ? "Dark" : "Light", active: SystemControl.darkMode, ic: "dark_mode", fb: "☾" },
+                            { id: "display", title: "Display", sub: SystemControl.monitors.length + " monitor(s) ›", active: false, ic: "desktop_windows", fb: "🖥" }
                         ]
                         delegate: Rectangle {
                             required property var modelData
@@ -1401,10 +1533,10 @@ Item {
                                 onClicked: {
                                     const tid = modelData.id
                                     Qt.callLater(() => {
-                                        if (tid === "mute") AudioService.toggleMasterMute()
-                                        else if (tid === "dock" && m3Root.themeHub) m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide)
-                                        else if (tid === "widgets") m3Root.sidebarSubView = "widgets"
+                                        if (tid === "game") GameModeService.autoDetect = !GameModeService.autoDetect
+                                        else if (tid === "awake") SystemControl.toggleKeepAwake()
                                         else if (tid === "theme") SystemControl.toggleDarkMode()
+                                        else if (tid === "display") m3Root.sidebarSubView = "display"
                                     })
                                 }
                             }
@@ -1412,44 +1544,123 @@ Item {
                     }
                 }
 
-                // Volume + Brightness Sliders
+                // Speaker + Mic + Multi-Monitor Brightness Sliders
                 Rectangle {
-                    width: parent.width; height: SystemControl.brightnessSupported ? 104 : 56; radius: 22; color: m3Root.colLayer2
+                    id: sbSlidersCard
+                    readonly property int rowCount: 1 + (AudioService.micSupported ? 1 : 0) + (SystemControl.brightnessSupported ? 1 : 0)
+                    readonly property var activeMon: {
+                        const mons = SystemControl.monitors || []
+                        return (m3Root.selMonIdx >= 0 && m3Root.selMonIdx < mons.length) ? mons[m3Root.selMonIdx] : null
+                    }
+                    readonly property int activeBri: activeMon ? Number(activeMon.brightness || 0) : SystemControl.brightness
+                    width: parent.width
+                    height: 24 + rowCount * 34 + Math.max(0, rowCount - 1) * 8
+                    radius: 22; color: m3Root.colLayer2
+
                     Column {
-                        anchors.fill: parent; anchors.margins: 12; spacing: 10
-                        Item {
-                            width: parent.width; height: 32
+                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+
+                        // Speaker row + Mixer button
+                        Row {
+                            width: parent.width; height: 34; spacing: 8
                             Rectangle {
-                                anchors.fill: parent; radius: 16; color: m3Root.colLayer0
-                                Rectangle { height: parent.height; radius: 16; width: Math.max(32, parent.width * (AudioService.masterVolume / 100.0)); color: m3Root.colPrimary }
+                                width: parent.width - 42; height: 34; radius: 17; color: m3Root.colLayer0
+                                Rectangle { height: parent.height; radius: 17; width: Math.max(34, parent.width * ((AudioService.masterMuted ? 0 : AudioService.masterVolume) / 100.0)); color: AudioService.masterMuted ? "#93000A" : m3Root.colPrimary }
                                 Row {
                                     anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                                    Text { font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "volume_up" : "🔊"; color: AudioService.masterVolume > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
-                                    Text { text: "Volume " + AudioService.masterVolume + "%"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: AudioService.masterVolume > 28 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                    Text {
+                                        font.family: m3Root.iconFontName; font.pixelSize: 17
+                                        text: m3Root.hasSymbols ? (AudioService.masterMuted ? "volume_off" : "volume_up") : "🔊"
+                                        color: AudioService.masterMuted ? "#FFDAD6" : (AudioService.masterVolume > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0)
+                                        MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => AudioService.toggleMasterMute()) }
+                                    }
+                                    Text { text: AudioService.masterMuted ? "Muted" : ("Speaker " + AudioService.masterVolume + "%"); font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: AudioService.masterMuted ? "#FFDAD6" : (AudioService.masterVolume > 28 ? m3Root.colOnPrimary : m3Root.colOnLayer0) }
                                 }
                                 MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    function applyVol(mx) { const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); Qt.callLater(() => AudioService.setMasterVolume(pct)) }
+                                    anchors.left: parent.left; anchors.leftMargin: 36; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; cursorShape: Qt.PointingHandCursor
+                                    function applyVol(mx) { const pct = Math.round(Math.max(0, Math.min(1, (mx + 36) / Math.max(1, parent.width))) * 100); Qt.callLater(() => AudioService.setMasterVolume(pct)) }
                                     onPressed: mouse => applyVol(mouse.x)
                                     onPositionChanged: mouse => { if (pressed) applyVol(mouse.x) }
                                 }
                             }
-                        }
-                        Item {
-                            visible: SystemControl.brightnessSupported; width: parent.width; height: 32
                             Rectangle {
-                                anchors.fill: parent; radius: 16; color: m3Root.colLayer0
-                                Rectangle { height: parent.height; radius: 16; width: Math.max(32, parent.width * (SystemControl.brightness / 100.0)); color: m3Root.colSecondary }
+                                width: 34; height: 34; radius: 17; color: m3Root.colLayer0
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "tune" : "🎚"; color: m3Root.colPrimary }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: Qt.callLater(() => {
+                                        AudioService.refreshOutputDevices()
+                                        AudioService.refreshSessions()
+                                        m3Root.sidebarSubView = "audio"
+                                    })
+                                }
+                            }
+                        }
+
+                        // Mic row
+                        Item {
+                            visible: AudioService.micSupported
+                            width: parent.width; height: 34
+                            Rectangle {
+                                anchors.fill: parent; radius: 17; color: m3Root.colLayer0
+                                Rectangle { height: parent.height; radius: 17; width: Math.max(34, parent.width * ((AudioService.micMuted ? 0 : AudioService.micVolume) / 100.0)); color: AudioService.micMuted ? "#93000A" : m3Root.colTertiary }
                                 Row {
                                     anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                                    Text { font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "brightness_6" : "☀"; color: SystemControl.brightness > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
-                                    Text { text: "Brightness " + SystemControl.brightness + "%"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: SystemControl.brightness > 28 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                    Text {
+                                        font.family: m3Root.iconFontName; font.pixelSize: 17
+                                        text: m3Root.hasSymbols ? (AudioService.micMuted ? "mic_off" : "mic") : "🎙"
+                                        color: AudioService.micMuted ? "#FFDAD6" : (AudioService.micVolume > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0)
+                                        MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => AudioService.toggleMicMute()) }
+                                    }
+                                    Text { text: AudioService.micMuted ? "Mic Muted" : ("Mic " + AudioService.micVolume + "%"); font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: AudioService.micMuted ? "#FFDAD6" : (AudioService.micVolume > 28 ? m3Root.colOnPrimary : m3Root.colOnLayer0) }
+                                }
+                                MouseArea {
+                                    anchors.left: parent.left; anchors.leftMargin: 36; anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; cursorShape: Qt.PointingHandCursor
+                                    function applyMic(mx) { const pct = Math.round(Math.max(0, Math.min(1, (mx + 36) / Math.max(1, parent.width))) * 100); Qt.callLater(() => AudioService.setMicVolume(pct)) }
+                                    onPressed: mouse => applyMic(mouse.x)
+                                    onPositionChanged: mouse => { if (pressed) applyMic(mouse.x) }
+                                }
+                            }
+                        }
+
+                        // Brightness row (+ M1/M2 monitor chips)
+                        Row {
+                            visible: SystemControl.brightnessSupported
+                            width: parent.width; height: 34; spacing: 6
+                            Rectangle {
+                                width: parent.width - ((SystemControl.monitors || []).length > 1 ? ((SystemControl.monitors || []).length * 36 + 6) : 0)
+                                height: 34; radius: 17; color: m3Root.colLayer0
+                                Rectangle { height: parent.height; radius: 17; width: Math.max(34, parent.width * (sbSlidersCard.activeBri / 100.0)); color: m3Root.colSecondary }
+                                Row {
+                                    anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter; spacing: 8
+                                    Text { font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "brightness_6" : "☀"; color: sbSlidersCard.activeBri > 18 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                    Text { text: "Brightness " + sbSlidersCard.activeBri + "%"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: sbSlidersCard.activeBri > 28 ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
                                 }
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    function applyBri(mx) { const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); Qt.callLater(() => SystemControl.setBrightness(pct)) }
+                                    function applyBri(mx) {
+                                        const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100)
+                                        const mon = sbSlidersCard.activeMon
+                                        if (mon) Qt.callLater(() => SystemControl.setMonitorBrightness(mon.index, pct))
+                                        else Qt.callLater(() => SystemControl.setBrightness(pct))
+                                    }
                                     onPressed: mouse => applyBri(mouse.x)
                                     onPositionChanged: mouse => { if (pressed) applyBri(mouse.x) }
+                                }
+                            }
+                            Row {
+                                visible: (SystemControl.monitors || []).length > 1
+                                spacing: 4
+                                Repeater {
+                                    model: SystemControl.monitors || []
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        required property int index
+                                        width: 32; height: 34; radius: 14
+                                        color: m3Root.selMonIdx === index ? m3Root.colPrimary : m3Root.colLayer0
+                                        Text { anchors.centerIn: parent; text: "M" + (index + 1); font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.selMonIdx === index ? m3Root.colOnPrimary : m3Root.colOnLayer1 }
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.selMonIdx = index }
+                                    }
                                 }
                             }
                         }
@@ -1496,32 +1707,178 @@ Item {
                     }
                 }
 
-                // Notifications Center
+                // Bottom Tabbed Group: Notifications | Calendar | Todo | Pomodoro
                 Rectangle {
-                    width: parent.width; height: Math.max(110, sbCard.height - 392); radius: 22; color: m3Root.colLayer2; clip: true
+                    width: parent.width
+                    height: Math.max(130, sbCard.height - 294 - sbSlidersCard.height)
+                    radius: 22; color: m3Root.colLayer2; clip: true
                     Column {
-                        anchors.fill: parent; anchors.margins: 14; spacing: 8
-                        Item {
-                            width: parent.width; height: 26
-                            Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Notifications (" + NotificationService.notifications.length + ")"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                            Rectangle {
-                                visible: NotificationService.notifications.length > 0; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                width: 68; height: 24; radius: 12; color: m3Root.colLayer0
-                                Text { anchors.centerIn: parent; text: "Clear"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary }
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => NotificationService.clearAll()) }
+                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+
+                        // Tab Bar
+                        Row {
+                            width: parent.width; height: 28; spacing: 4
+                            Repeater {
+                                model: [
+                                    { id: "notifs", lbl: "Notifs (" + NotificationService.notifications.length + ")" },
+                                    { id: "calendar", lbl: "Calendar" },
+                                    { id: "todo", lbl: "Todo" },
+                                    { id: "pomo", lbl: m3Root.pomoRunning ? m3Root.fmtPomo(m3Root.pomoSeconds) : "Focus" }
+                                ]
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    readonly property bool sel: m3Root.sbBottomTab === modelData.id
+                                    width: (parent.width - 12) / 4; height: 28; radius: 14
+                                    color: sel ? m3Root.colPrimary : m3Root.colLayer1
+                                    Text { anchors.centerIn: parent; width: parent.width - 8; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; text: modelData.lbl; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: sel ? m3Root.colOnPrimary : m3Root.colOnLayer1 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.sbBottomTab = modelData.id }
+                                }
                             }
                         }
-                        Text { visible: NotificationService.notifications.length === 0; width: parent.width; height: parent.height - 40; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; text: "All caught up"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
-                        ListView {
-                            visible: NotificationService.notifications.length > 0; width: parent.width; height: parent.height - 34; spacing: 6; clip: true
-                            model: NotificationService.notifications
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: ListView.view.width; height: 54; radius: 14; color: m3Root.colLayer1
-                                Column {
-                                    anchors.fill: parent; anchors.margins: 10; spacing: 2
-                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.title || modelData.appName || "Notification"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.body || ""; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1 }
+
+                        // TAB 1: Notifications
+                        Item {
+                            visible: m3Root.sbBottomTab === "notifs"
+                            width: parent.width; height: parent.height - 36
+                            Rectangle {
+                                visible: NotificationService.notifications.length > 0; z: 2
+                                anchors.right: parent.right; anchors.top: parent.top
+                                width: 64; height: 22; radius: 11; color: m3Root.colLayer0
+                                Text { anchors.centerIn: parent; text: "Clear"; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colPrimary }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => NotificationService.clearAll()) }
+                            }
+                            Text { visible: NotificationService.notifications.length === 0; anchors.centerIn: parent; text: "All caught up"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnLayer1 }
+                            ListView {
+                                visible: NotificationService.notifications.length > 0
+                                anchors.fill: parent; spacing: 6; clip: true
+                                model: NotificationService.notifications
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: ListView.view.width; height: 52; radius: 14; color: m3Root.colLayer1
+                                    Column {
+                                        anchors.fill: parent; anchors.margins: 10; spacing: 2
+                                        Text { width: parent.width; elide: Text.ElideRight; text: modelData.title || modelData.appName || "Notification"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                        Text { width: parent.width; elide: Text.ElideRight; text: modelData.body || ""; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1 }
+                                    }
+                                }
+                            }
+                        }
+
+                        // TAB 2: Mini Calendar
+                        Column {
+                            visible: m3Root.sbBottomTab === "calendar"
+                            width: parent.width; height: parent.height - 36; spacing: 4
+                            Item {
+                                width: parent.width; height: 24
+                                Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: Qt.formatDate(new Date(m3Root.calYear, m3Root.calMonth, 1), "MMMM yyyy"); font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                                    Rectangle { width: 22; height: 22; radius: 11; color: m3Root.colLayer1; Text { anchors.centerIn: parent; text: "‹"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 0) { m3Root.calMonth = 11; m3Root.calYear -= 1 } else m3Root.calMonth -= 1 } } }
+                                    Rectangle { width: 22; height: 22; radius: 11; color: m3Root.colLayer1; Text { anchors.centerIn: parent; text: "›"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 11) { m3Root.calMonth = 0; m3Root.calYear += 1 } else m3Root.calMonth += 1 } } }
+                                }
+                            }
+                            Grid {
+                                width: parent.width; columns: 7; rowSpacing: 2; columnSpacing: 2
+                                Repeater {
+                                    model: ["M", "T", "W", "T", "F", "S", "S"]
+                                    delegate: Text { required property string modelData; width: (parent.width - 12) / 7; horizontalAlignment: Text.AlignHCenter; text: modelData; font.family: "Segoe UI"; font.pixelSize: 9; font.weight: Font.Bold; color: m3Root.colPrimary }
+                                }
+                                Repeater {
+                                    model: m3Root.calendarCells
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: (parent.width - 12) / 7; height: 22; radius: 11
+                                        color: modelData.isToday ? m3Root.colPrimary : "transparent"
+                                        Text { anchors.centerIn: parent; text: String(modelData.day); font.family: "Segoe UI"; font.pixelSize: 10; font.weight: modelData.isToday ? Font.Bold : Font.Normal; color: modelData.isToday ? m3Root.colOnPrimary : m3Root.colOnLayer0; opacity: modelData.curMonth ? 1.0 : 0.35 }
+                                    }
+                                }
+                            }
+                        }
+
+                        // TAB 3: Persistent Todo
+                        Column {
+                            visible: m3Root.sbBottomTab === "todo"
+                            width: parent.width; height: parent.height - 36; spacing: 8
+                            Row {
+                                width: parent.width; height: 32; spacing: 6
+                                Rectangle {
+                                    width: parent.width - 62; height: 32; radius: 16; color: m3Root.colLayer0; border.width: 1; border.color: m3Root.colLayer0Border
+                                    TextInput {
+                                        id: sbTodoInput
+                                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; verticalAlignment: TextInput.AlignVCenter
+                                        font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer0
+                                        Keys.onReturnPressed: { if (text.trim() !== "") { m3Root.addTodo(text); text = "" } }
+                                        Text { visible: parent.text === ""; text: "Add a task..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.6 }
+                                    }
+                                }
+                                Rectangle {
+                                    width: 56; height: 32; radius: 16; color: m3Root.colPrimary
+                                    Text { anchors.centerIn: parent; text: "Add"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (sbTodoInput.text.trim() !== "") { m3Root.addTodo(sbTodoInput.text); sbTodoInput.text = "" } } }
+                                }
+                            }
+                            ListView {
+                                width: parent.width; height: parent.height - 40; spacing: 6; clip: true
+                                model: m3Root.m3Todos
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    required property int index
+                                    width: ListView.view.width; height: 36; radius: 14; color: m3Root.colLayer1
+                                    Row {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8; spacing: 8
+                                        Rectangle {
+                                            width: 18; height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter
+                                            color: modelData.done ? m3Root.colPrimary : "transparent"; border.width: 2; border.color: m3Root.colPrimary
+                                            Text { visible: !!modelData.done; anchors.centerIn: parent; text: "✓"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                            MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.toggleTodo(index) }
+                                        }
+                                        Text {
+                                            width: parent.width - 54; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                                            text: modelData.text || ""; font.family: "Segoe UI"; font.pixelSize: 12; font.strikeout: !!modelData.done
+                                            color: m3Root.colOnLayer0; opacity: modelData.done ? 0.5 : 1.0
+                                        }
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter; text: "✕"; font.pixelSize: 12; color: "#FFB4AB"
+                                            MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.removeTodo(index) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // TAB 4: Pomodoro Focus Timer
+                        Column {
+                            visible: m3Root.sbBottomTab === "pomo"
+                            width: parent.width; height: parent.height - 36; spacing: 10
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter; spacing: 6
+                                Rectangle {
+                                    width: 84; height: 26; radius: 13; color: !m3Root.pomoBreak ? m3Root.colPrimaryContainer : m3Root.colLayer1
+                                    Text { anchors.centerIn: parent; text: "Focus 25m"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: !m3Root.pomoBreak ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { m3Root.pomoRunning = false; m3Root.pomoBreak = false; m3Root.pomoSeconds = 25 * 60 } }
+                                }
+                                Rectangle {
+                                    width: 84; height: 26; radius: 13; color: m3Root.pomoBreak ? m3Root.colPrimaryContainer : m3Root.colLayer1
+                                    Text { anchors.centerIn: parent; text: "Break 5m"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.pomoBreak ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { m3Root.pomoRunning = false; m3Root.pomoBreak = true; m3Root.pomoSeconds = 5 * 60 } }
+                                }
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: m3Root.fmtPomo(m3Root.pomoSeconds)
+                                font.family: "Segoe UI"; font.pixelSize: 38; font.weight: Font.Black; color: m3Root.colPrimary
+                            }
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter; spacing: 10
+                                Rectangle {
+                                    width: 96; height: 34; radius: 17; color: m3Root.colPrimary
+                                    Text { anchors.centerIn: parent; text: m3Root.pomoRunning ? "Pause" : "Start"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.pomoRunning = !m3Root.pomoRunning }
+                                }
+                                Rectangle {
+                                    width: 78; height: 34; radius: 17; color: m3Root.colLayer1
+                                    Text { anchors.centerIn: parent; text: "Reset"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { m3Root.pomoRunning = false; m3Root.pomoSeconds = m3Root.pomoBreak ? 5 * 60 : 25 * 60 } }
                                 }
                             }
                         }
@@ -1725,6 +2082,160 @@ Item {
                 }
             }
 
+            // ---- SUB-VIEW: AUDIO OUTPUT & PER-APP MIXER ----
+            Column {
+                visible: m3Root.sidebarSubView === "audio"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Sound & Volume Mixer"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    }
+                    Rectangle {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "refresh" : "↻"; color: m3Root.colOnLayer0 }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { AudioService.refreshOutputDevices(); AudioService.refreshSessions() }) }
+                    }
+                }
+
+                Text { text: "Output Device"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+                Column {
+                    width: parent.width; spacing: 6
+                    Repeater {
+                        model: AudioService.outputDevices || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: sbCard.width - 32; height: 42; radius: 16
+                            color: modelData.isDefault ? m3Root.colPrimaryContainer : m3Root.colLayer2
+                            border.width: modelData.isDefault ? 1 : 0; border.color: m3Root.colPrimary
+                            Row {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "speaker" : "🔊"; color: modelData.isDefault ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                                Text { anchors.verticalCenter: parent.verticalCenter; width: parent.width - 36; elide: Text.ElideRight; text: modelData.name || "Output"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { const did = modelData.id || ""; if (did !== "") Qt.callLater(() => AudioService.setDefaultOutputDevice(did)) } }
+                        }
+                    }
+                }
+
+                Text { text: "App Volume Mixer"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+                ListView {
+                    width: parent.width; height: Math.max(120, parent.height - 108 - ((AudioService.outputDevices || []).length * 48))
+                    spacing: 8; clip: true; model: AudioService.sessions || []
+                    Text { visible: (AudioService.sessions || []).length === 0; anchors.centerIn: parent; text: "No active audio apps"; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1 }
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: ListView.view.width; height: 54; radius: 18; color: m3Root.colLayer2
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
+                            Rectangle {
+                                width: 32; height: 32; radius: 16; anchors.verticalCenter: parent.verticalCenter
+                                color: modelData.muted ? "#93000A" : m3Root.colLayer0
+                                Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 16; text: m3Root.hasSymbols ? (modelData.muted ? "volume_off" : "volume_up") : "🔊"; color: modelData.muted ? "#FFDAD6" : m3Root.colPrimary }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { const sid = modelData.id || ""; if (sid !== "") Qt.callLater(() => AudioService.toggleAppMute(sid)) } }
+                            }
+                            Column {
+                                width: parent.width - 42; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                                Item {
+                                    width: parent.width; height: 16
+                                    Text { anchors.left: parent.left; width: parent.width - 40; elide: Text.ElideRight; text: modelData.name || "App"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                    Text { anchors.right: parent.right; text: (modelData.volume || 0) + "%"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colPrimary }
+                                }
+                                Rectangle {
+                                    width: parent.width; height: 8; radius: 4; color: m3Root.colLayer0
+                                    Rectangle { width: Math.max(8, parent.width * ((modelData.muted ? 0 : (modelData.volume || 0)) / 100.0)); height: parent.height; radius: 4; color: m3Root.colPrimary }
+                                    MouseArea {
+                                        anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor
+                                        function applyApp(mx) { const sid = modelData.id || ""; const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); if (sid !== "") Qt.callLater(() => AudioService.setAppVolume(sid, pct)) }
+                                        onPressed: mouse => applyApp(mouse.x)
+                                        onPositionChanged: mouse => { if (pressed) applyApp(mouse.x) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- SUB-VIEW: DISPLAY MODE & MULTI-MONITOR BRIGHTNESS ----
+            Column {
+                visible: m3Root.sidebarSubView === "display"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Display & Monitors"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    }
+                }
+
+                Text { text: "Projection Mode"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+                Grid {
+                    width: parent.width; columns: 2; columnSpacing: 8; rowSpacing: 8
+                    Repeater {
+                        model: [
+                            { mode: "internal", label: "PC Screen Only", ic: "laptop" },
+                            { mode: "clone",    label: "Duplicate",      ic: "content_copy" },
+                            { mode: "extend",   label: "Extend",         ic: "view_column" },
+                            { mode: "external", label: "Second Screen",  ic: "tv" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: (sbCard.width - 40) * 0.5; height: 48; radius: 20; color: m3Root.colLayer2
+                            Row {
+                                anchors.centerIn: parent; spacing: 8
+                                Text { font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? modelData.ic : "🖥"; color: m3Root.colPrimary }
+                                Text { text: modelData.label; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { const md = modelData.mode; Qt.callLater(() => SystemControl.setDisplayMode(md)) } }
+                        }
+                    }
+                }
+
+                Text { text: "Monitors Brightness"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+                Column {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: SystemControl.monitors || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: sbCard.width - 32; height: 54; radius: 18; color: m3Root.colLayer2
+                            Column {
+                                anchors.fill: parent; anchors.margins: 10; spacing: 6
+                                Item {
+                                    width: parent.width; height: 16
+                                    Text { anchors.left: parent.left; text: (modelData.name || ("Monitor " + (modelData.index + 1))); font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                    Text { anchors.right: parent.right; text: (modelData.brightness || 0) + "%"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3Root.colSecondary }
+                                }
+                                Rectangle {
+                                    width: parent.width; height: 10; radius: 5; color: m3Root.colLayer0
+                                    Rectangle { width: Math.max(10, parent.width * ((modelData.brightness || 0) / 100.0)); height: parent.height; radius: 5; color: m3Root.colSecondary }
+                                    MouseArea {
+                                        anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor
+                                        function applyM(mx) { const idx = modelData.index; const pct = Math.round(Math.max(0, Math.min(1, mx / Math.max(1, width))) * 100); Qt.callLater(() => SystemControl.setMonitorBrightness(idx, pct)) }
+                                        onPressed: mouse => applyM(mouse.x)
+                                        onPositionChanged: mouse => { if (pressed) applyM(mouse.x) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ---- SUB-VIEW: DESKTOP WIDGETS MANAGER ----
             Column {
                 visible: m3Root.sidebarSubView === "widgets"
@@ -1748,45 +2259,47 @@ Item {
                     }
                 }
 
-                Column {
-                    width: parent.width; spacing: 8
-                    Repeater {
-                        model: [
-                            { key: "userCard",     name: "User Card",     sub: "Avatar, uptime, weather quip & quick actions", ic: "account_circle", fb: "👤" },
-                            { key: "worldClock",   name: "World Clock",   sub: "Local time & 4 day/night city cards",         ic: "public",         fb: "🌐" },
-                            { key: "digitalClock", name: "Digital Clock", sub: "Stacked HH / mm & date badge",                ic: "schedule",       fb: "🕒" },
-                            { key: "media",        name: "Media Player",  sub: "Album cover & Cookie12Sided controls",        ic: "music_note",     fb: "♫" },
-                            { key: "weather",      name: "Weather Card",  sub: "Temperature, condition & 4 metric pills",     ic: "cloud",          fb: "☁" },
-                            { key: "resources",    name: "System Stats",  sub: "CPU Gem, RAM & Temp/Battery cards",           ic: "memory",         fb: "⚙" }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            readonly property bool shown: m3Root.isWidgetShown(modelData.key)
-                            width: sbCard.width - 32; height: 58; radius: 20
-                            color: shown ? m3Root.colPrimaryContainer : m3Root.colLayer2
-                            border.width: shown ? 1 : 0; border.color: m3Root.colPrimary
+                ListView {
+                    width: parent.width; height: parent.height - 48; spacing: 8; clip: true
+                    model: [
+                        { key: "userCard",     name: "User Card",     sub: "Avatar, uptime, weather quip & quick actions", ic: "account_circle", fb: "👤" },
+                        { key: "worldClock",   name: "World Clock",   sub: "Local time & 4 day/night city cards",         ic: "public",         fb: "🌐" },
+                        { key: "digitalClock", name: "Digital Clock", sub: "Stacked HH / mm & date badge",                ic: "schedule",       fb: "🕒" },
+                        { key: "cookieClock",  name: "Cookie Clock",  sub: "12-sided M3 analog clock & date pill",        ic: "pace",           fb: "🍪" },
+                        { key: "media",        name: "Media Player",  sub: "Album cover & Cookie12Sided controls",        ic: "music_note",     fb: "♫" },
+                        { key: "weather",      name: "Weather Card",  sub: "Temperature, condition & 4 metric pills",     ic: "cloud",          fb: "☁" },
+                        { key: "resources",    name: "System Stats",  sub: "CPU Gem, RAM & Temp/Battery cards",           ic: "memory",         fb: "⚙" },
+                        { key: "calendar",     name: "Calendar",      sub: "Interactive desktop monthly calendar",        ic: "calendar_month", fb: "📅" },
+                        { key: "notes",        name: "Sticky Notes",  sub: "Editable Material 3 desktop scratchpad",      ic: "sticky_note_2",  fb: "📝" },
+                        { key: "todo",         name: "Todo & Focus",  sub: "Synced tasks & Pomodoro timer",               ic: "checklist",      fb: "☑" }
+                    ]
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool shown: m3Root.isWidgetShown(modelData.key)
+                        width: ListView.view.width; height: 56; radius: 20
+                        color: shown ? m3Root.colPrimaryContainer : m3Root.colLayer2
+                        border.width: shown ? 1 : 0; border.color: m3Root.colPrimary
 
-                            Row {
-                                anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
-                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: shown ? m3Root.colPrimary : m3Root.colOnLayer1 }
-                                Column {
-                                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - 88; spacing: 1
-                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.name; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                                    Text { width: parent.width; elide: Text.ElideRight; text: modelData.sub; font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
-                                }
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? modelData.ic : modelData.fb; color: shown ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter; width: parent.width - 88; spacing: 1
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.name; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.sub; font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                            }
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter; width: 46; height: 26; radius: 13; color: shown ? m3Root.colPrimary : m3Root.colLayer0
                                 Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter; width: 46; height: 26; radius: 13; color: shown ? m3Root.colPrimary : m3Root.colLayer0
-                                    Rectangle {
-                                        width: 20; height: 20; radius: 10; anchors.verticalCenter: parent.verticalCenter
-                                        x: shown ? 23 : 3; color: shown ? m3Root.colOnPrimary : m3Root.colOnLayer1
-                                        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                    }
+                                    width: 20; height: 20; radius: 10; anchors.verticalCenter: parent.verticalCenter
+                                    x: shown ? 23 : 3; color: shown ? m3Root.colOnPrimary : m3Root.colOnLayer1
+                                    Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                 }
                             }
-                            MouseArea {
-                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                onClicked: { const k = modelData.key; const nextOn = !shown; Qt.callLater(() => m3Root.setWidgetShown(k, nextOn)) }
-                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: { const k = modelData.key; const nextOn = !shown; Qt.callLater(() => m3Root.setWidgetShown(k, nextOn)) }
                         }
                     }
                 }
@@ -2443,4 +2956,159 @@ Item {
             }
         }
     }
+
+    // =========================================================================
+    // 12. Extra Draggable Desktop Widgets (CookieClock, Calendar, Notes, Todo)
+    // =========================================================================
+    M3DraggableWidget {
+        widgetKey: "cookieClock"
+        defaultX: Math.round(m3Root.sw - 420 * m3Root.uiScale)
+        defaultY: 50
+        baseW: 184
+        baseH: 184
+
+        M3CookieClock {
+            m3Root: m3Root
+        }
+    }
+
+    M3DraggableWidget {
+        widgetKey: "calendar"
+        defaultX: Math.round(310 * m3Root.uiScale)
+        defaultY: 50
+        baseW: 276
+        baseH: 260
+
+        Rectangle {
+            width: 276; height: 260; radius: 28
+            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+            border.width: 1; border.color: m3Root.colLayer0Border
+
+            Column {
+                anchors.fill: parent; anchors.margins: 16; spacing: 8
+                Item {
+                    width: parent.width; height: 26
+                    Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: Qt.formatDate(new Date(m3Root.calYear, m3Root.calMonth, 1), "MMMM yyyy"); font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    Row {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                        Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "‹"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 0) { m3Root.calMonth = 11; m3Root.calYear -= 1 } else m3Root.calMonth -= 1 } } }
+                        Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "›"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 11) { m3Root.calMonth = 0; m3Root.calYear += 1 } else m3Root.calMonth += 1 } } }
+                    }
+                }
+                Grid {
+                    width: parent.width; columns: 7; rowSpacing: 4; columnSpacing: 2
+                    Repeater {
+                        model: ["M", "T", "W", "T", "F", "S", "S"]
+                        delegate: Text { required property string modelData; width: (parent.width - 12) / 7; horizontalAlignment: Text.AlignHCenter; text: modelData; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colPrimary }
+                    }
+                    Repeater {
+                        model: m3Root.calendarCells
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: (parent.width - 12) / 7; height: 25; radius: 12
+                            color: modelData.isToday ? m3Root.colPrimary : "transparent"
+                            Text { anchors.centerIn: parent; text: String(modelData.day); font.family: "Segoe UI"; font.pixelSize: 11; font.weight: modelData.isToday ? Font.Bold : Font.Normal; color: modelData.isToday ? m3Root.colOnPrimary : m3Root.colOnLayer0; opacity: modelData.curMonth ? 1.0 : 0.35 }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    M3DraggableWidget {
+        widgetKey: "notes"
+        defaultX: Math.round(310 * m3Root.uiScale)
+        defaultY: Math.round(330 * m3Root.uiScale)
+        baseW: 276
+        baseH: 210
+
+        Rectangle {
+            width: 276; height: 210; radius: 28
+            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+            border.width: 1; border.color: m3Root.colLayer0Border
+
+            Column {
+                anchors.fill: parent; anchors.margins: 16; spacing: 8
+                Row {
+                    spacing: 8
+                    Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "sticky_note_2" : "📝"; color: m3Root.colPrimary }
+                    Text { anchors.verticalCenter: parent.verticalCenter; text: "Quick Notes"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                }
+                Rectangle {
+                    width: parent.width; height: parent.height - 32; radius: 16; color: m3Root.colLayer0; clip: true
+                    TextEdit {
+                        id: m3NotesEdit
+                        anchors.fill: parent; anchors.margins: 10
+                        wrapMode: TextEdit.Wrap
+                        font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer0
+                        text: ConfigStore.stringValue("m3.notes.text", "")
+                        onTextChanged: ConfigStore.set("m3.notes.text", text)
+                        Text { visible: parent.text === ""; text: "Write something..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.5 }
+                    }
+                }
+            }
+        }
+    }
+
+    M3DraggableWidget {
+        widgetKey: "todo"
+        defaultX: Math.round(310 * m3Root.uiScale)
+        defaultY: Math.round(560 * m3Root.uiScale)
+        baseW: 276
+        baseH: 240
+
+        Rectangle {
+            width: 276; height: 240; radius: 28
+            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+            border.width: 1; border.color: m3Root.colLayer0Border
+
+            Column {
+                anchors.fill: parent; anchors.margins: 16; spacing: 8
+                Item {
+                    width: parent.width; height: 26
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "checklist" : "☑"; color: m3Root.colPrimary }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Todo (" + m3Root.m3Todos.length + ")"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    }
+                    Rectangle {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        width: 72; height: 24; radius: 12; color: m3Root.pomoRunning ? m3Root.colPrimary : m3Root.colLayer2
+                        Text { anchors.centerIn: parent; text: m3Root.fmtPomo(m3Root.pomoSeconds); font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.pomoRunning ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.pomoRunning = !m3Root.pomoRunning }
+                    }
+                }
+                ListView {
+                    width: parent.width; height: parent.height - 34; spacing: 5; clip: true
+                    model: m3Root.m3Todos
+                    Text { visible: m3Root.m3Todos.length === 0; anchors.centerIn: parent; text: "Add tasks in Control Center"; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1; opacity: 0.7 }
+                    delegate: Rectangle {
+                        required property var modelData
+                        required property int index
+                        width: ListView.view.width; height: 32; radius: 12; color: m3Root.colLayer2
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
+                            Rectangle {
+                                width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
+                                color: modelData.done ? m3Root.colPrimary : "transparent"; border.width: 2; border.color: m3Root.colPrimary
+                                Text { visible: !!modelData.done; anchors.centerIn: parent; text: "✓"; font.pixelSize: 9; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.toggleTodo(index) }
+                            }
+                            Text { width: parent.width - 26; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: modelData.text || ""; font.family: "Segoe UI"; font.pixelSize: 11; font.strikeout: !!modelData.done; color: m3Root.colOnLayer0; opacity: modelData.done ? 0.5 : 1.0 }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 13. Material 3 Expressive Overlays (Session, Media, Clipboard, OSD, Toasts, Corners)
+    // =========================================================================
+    M3SessionScreen { m3Root: m3Root }
+    M3MediaPopup { m3Root: m3Root }
+    M3ClipboardPopup { m3Root: m3Root }
+    M3OsdPopup { m3Root: m3Root }
+    M3NotifPopup { m3Root: m3Root }
+    M3ScreenCorners { m3Root: m3Root }
 }

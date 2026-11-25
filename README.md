@@ -9,7 +9,6 @@ Presets completely replace the desktop shell layout (Top Bar, Dock, Desktop Widg
 | ID | Name | License |
 | --- | --- | --- |
 | `material-you` | **Material You (End-4)** | GPL-3.0 |
-| `macos` | **macOS Sequoia** | MIT |
 
 ## Installation
 
