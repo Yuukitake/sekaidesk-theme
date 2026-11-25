@@ -56,6 +56,54 @@ Item {
     property int widgetResetGen: 0
     property int widgetVisGen: 0
 
+    // Configurable World Clock Cities (persisted in ConfigStore)
+    property int worldClockEditSlot: 0
+    readonly property var worldCityPresets: [
+        { city: "Ho Chi Minh", tz: "+7",  off: 7 },
+        { city: "Tokyo",       tz: "+9",  off: 9 },
+        { city: "Seoul",       tz: "+9",  off: 9 },
+        { city: "Singapore",   tz: "+8",  off: 8 },
+        { city: "Taipei",      tz: "+8",  off: 8 },
+        { city: "Hong Kong",   tz: "+8",  off: 8 },
+        { city: "Bangkok",     tz: "+7",  off: 7 },
+        { city: "Sydney",      tz: "+11", off: 11 },
+        { city: "London",      tz: "+0",  off: 0 },
+        { city: "Paris",       tz: "+1",  off: 1 },
+        { city: "Berlin",      tz: "+1",  off: 1 },
+        { city: "Moscow",      tz: "+3",  off: 3 },
+        { city: "Dubai",       tz: "+4",  off: 4 },
+        { city: "New Delhi",   tz: "+5.5", off: 5.5 },
+        { city: "New York",    tz: "-5",  off: -5 },
+        { city: "Los Angeles", tz: "-8",  off: -8 },
+        { city: "Chicago",     tz: "-6",  off: -6 },
+        { city: "Toronto",     tz: "-5",  off: -5 },
+        { city: "Sao Paulo",   tz: "-3",  off: -3 },
+        { city: "UTC",         tz: "+0",  off: 0 }
+    ]
+    property var worldCities: {
+        try {
+            const raw = ConfigStore.stringValue("m3.worldClock.cities", "")
+            if (raw !== "") {
+                const parsed = JSON.parse(raw)
+                if (Array.isArray(parsed) && parsed.length === 4)
+                    return parsed
+            }
+        } catch (e) {}
+        return [
+            { city: "Tokyo",    tz: "+9", off: 9 },
+            { city: "Seoul",    tz: "+9", off: 9 },
+            { city: "London",   tz: "+0", off: 0 },
+            { city: "New York", tz: "-5", off: -5 }
+        ]
+    }
+    function setWorldCity(slot, entry) {
+        if (slot < 0 || slot >= 4 || !entry) return
+        const next = worldCities.slice(0)
+        next[slot] = { city: entry.city, tz: entry.tz, off: entry.off }
+        worldCities = next
+        ConfigStore.set("m3.worldClock.cities", JSON.stringify(next))
+    }
+
     // Persistent Todo List + Pomodoro state
     property var m3Todos: {
         try {
@@ -452,6 +500,7 @@ Item {
         readonly property int targetW: Math.round(baseW * k)
         readonly property int targetH: Math.round(baseH * k)
 
+        property bool allowFocus: false
         property bool draggingNow: false
         property double lastDragMs: 0
 
@@ -462,6 +511,7 @@ Item {
 
         visible: !m3Root.fullscreenActive && isShown
         desktopLayer: true
+        desktopAllowFocus: allowFocus
         color: "transparent"
 
         Component.onCompleted: syncGeo()
@@ -791,6 +841,20 @@ Item {
                     }
 
                     Rectangle {
+                        height: 22; width: m3BarWpBtnTxt.implicitWidth + 16; radius: 11
+                        color: (m3Root.sidebarOpen && m3Root.sidebarSubView === "widgets" || m3BarWidgetsMa.containsMouse) ? m3Root.colPrimary : m3Root.colSurfaceVariant
+                        Text { id: m3BarWpBtnTxt; anchors.centerIn: parent; text: "Widgets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: (m3Root.sidebarOpen && m3Root.sidebarSubView === "widgets" || m3BarWidgetsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        MouseArea {
+                            id: m3BarWidgetsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.closeAllPopups()
+                                m3Root.sidebarSubView = "widgets"
+                                m3Root.sidebarOpen = true
+                            })
+                        }
+                    }
+
+                    Rectangle {
                         height: 22; width: m3BarPresetTxt.implicitWidth + 16; radius: 11
                         color: m3BarPresetMa.containsMouse ? m3Root.colPrimary : m3Root.colPrimaryContainer
                         Text { id: m3BarPresetTxt; anchors.centerIn: parent; text: "Presets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3BarPresetMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnPrimaryContainer }
@@ -926,7 +990,15 @@ Item {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 28; height: 28; radius: 14
                         color: Qt.rgba(m3Root.colLayer0.r, m3Root.colLayer0.g, m3Root.colLayer0.b, 0.35)
                         Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 14; text: m3Root.hasSymbols ? "tune" : "⚙"; color: m3Root.colOnSurfaceVariant }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleQuickPanel(false)) }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(() => {
+                                m3Root.closeAllPopups()
+                                m3Root.worldClockEditSlot = 0
+                                m3Root.sidebarSubView = "worldclock"
+                                m3Root.sidebarOpen = true
+                            })
+                        }
                     }
                 }
                 Column {
@@ -937,14 +1009,10 @@ Item {
                 Grid {
                     width: parent.width; columns: 2; columnSpacing: 6; rowSpacing: 6
                     Repeater {
-                        model: [
-                            { city: "Tokyo", tz: "+9", off: 9 },
-                            { city: "Seoul", tz: "+9", off: 9 },
-                            { city: "London", tz: "+0", off: 0 },
-                            { city: "New York", tz: "-5", off: -5 }
-                        ]
+                        model: m3Root.worldCities
                         delegate: Rectangle {
                             required property var modelData
+                            required property int index
                             readonly property var wt: m3Root.fmtWorldTime(m3Root.nowDate, modelData.off)
                             readonly property color fg: wt.isDay ? m3Root.colOnPrimary : m3Root.colOnLayer0
                             width: 120; height: 54; radius: 14
@@ -961,6 +1029,18 @@ Item {
                                     width: parent.width; height: 18
                                     Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: wt.text; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: fg }
                                     Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 12; text: m3Root.hasSymbols ? (wt.isDay ? "wb_sunny" : "bedtime") : (wt.isDay ? "☀" : "☾"); color: fg }
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const sl = index
+                                    Qt.callLater(() => {
+                                        m3Root.closeAllPopups()
+                                        m3Root.worldClockEditSlot = sl
+                                        m3Root.sidebarSubView = "worldclock"
+                                        m3Root.sidebarOpen = true
+                                    })
                                 }
                             }
                         }
@@ -1667,16 +1747,26 @@ Item {
                     }
                 }
 
-                // Quick Preset Switcher (smooth crossfade veil!)
+                // Prominent Desktop Widgets Button + Quick Preset Switcher
                 Row {
                     width: parent.width; height: 34; spacing: 6
+                    Rectangle {
+                        width: 116; height: 34; radius: 17
+                        color: sbWidgetsBtnMa.containsMouse ? m3Root.colSecondary : m3Root.colSecondaryContainer
+                        Row {
+                            anchors.centerIn: parent; spacing: 5
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 15; text: m3Root.hasSymbols ? "widgets" : "⊞"; color: sbWidgetsBtnMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: "Widgets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: sbWidgetsBtnMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                        }
+                        MouseArea { id: sbWidgetsBtnMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.sidebarSubView = "widgets" }
+                    }
                     Repeater {
                         model: ThemeStore.presets
                         delegate: Rectangle {
                             required property var modelData
                             readonly property bool isCur: ThemeStore.activePreset === modelData.id
                             readonly property bool isInst: !!modelData.installed
-                            width: (sbCard.width - 32 - Math.max(0, ThemeStore.presets.length - 1) * 6) / Math.max(1, ThemeStore.presets.length)
+                            width: (sbCard.width - 32 - 122 - Math.max(0, ThemeStore.presets.length - 1) * 6) / Math.max(1, ThemeStore.presets.length)
                             height: 34; radius: 17
                             color: isCur ? m3Root.colPrimary : m3Root.colLayer2
                             Text {
@@ -2300,6 +2390,69 @@ Item {
                         MouseArea {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: { const k = modelData.key; const nextOn = !shown; Qt.callLater(() => m3Root.setWidgetShown(k, nextOn)) }
+                        }
+                    }
+                }
+            }
+
+            // ---- SUB-VIEW: WORLD CLOCK CITIES PICKER ----
+            Column {
+                visible: m3Root.sidebarSubView === "worldclock"
+                anchors.fill: parent; anchors.margins: 16; spacing: 12
+
+                Item {
+                    width: parent.width; height: 36
+                    Row {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 10
+                        Rectangle {
+                            width: 34; height: 34; radius: 17; color: m3Root.colLayer2
+                            Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "arrow_back" : "←"; color: m3Root.colOnLayer0 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => { m3Root.sidebarSubView = ""; sbCard.forceActiveFocus() }) }
+                        }
+                        Text { anchors.verticalCenter: parent.verticalCenter; text: "World Clock Cities"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                    }
+                }
+
+                // 4 Slot Selector Chips
+                Grid {
+                    width: parent.width; columns: 2; columnSpacing: 8; rowSpacing: 8
+                    Repeater {
+                        model: m3Root.worldCities
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            readonly property bool activeSlot: m3Root.worldClockEditSlot === index
+                            width: (sbCard.width - 40) * 0.5; height: 42; radius: 16
+                            color: activeSlot ? m3Root.colPrimary : m3Root.colLayer2
+                            Row {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 6
+                                Text { anchors.verticalCenter: parent.verticalCenter; text: "#" + (index + 1); font.family: "Consolas"; font.pixelSize: 11; font.weight: Font.Bold; color: activeSlot ? m3Root.colOnPrimary : m3Root.colPrimary }
+                                Text { anchors.verticalCenter: parent.verticalCenter; width: parent.width - 28; elide: Text.ElideRight; text: modelData.city; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: activeSlot ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.worldClockEditSlot = index }
+                        }
+                    }
+                }
+
+                Text { text: "Select City for Slot #" + (m3Root.worldClockEditSlot + 1); font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: m3Root.colPrimary }
+
+                ListView {
+                    width: parent.width; height: parent.height - 178; spacing: 6; clip: true
+                    model: m3Root.worldCityPresets
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool isSelectedHere: m3Root.worldCities[m3Root.worldClockEditSlot] && m3Root.worldCities[m3Root.worldClockEditSlot].city === modelData.city
+                        width: ListView.view.width; height: 44; radius: 14
+                        color: isSelectedHere ? m3Root.colPrimaryContainer : m3Root.colLayer2
+                        border.width: isSelectedHere ? 1 : 0; border.color: m3Root.colPrimary
+                        Row {
+                            anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 8
+                            Text { anchors.verticalCenter: parent.verticalCenter; width: parent.width - 70; elide: Text.ElideRight; text: modelData.city; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; width: 62; horizontalAlignment: Text.AlignRight; text: "UTC " + modelData.tz; font.family: "Consolas"; font.pixelSize: 11; color: m3Root.colPrimary }
+                        }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: { const ent = modelData; Qt.callLater(() => m3Root.setWorldCity(m3Root.worldClockEditSlot, ent)) }
                         }
                     }
                 }
@@ -3016,7 +3169,9 @@ Item {
     }
 
     M3DraggableWidget {
+        id: m3NotesWidget
         widgetKey: "notes"
+        allowFocus: true
         defaultX: Math.round(310 * m3Root.uiScale)
         defaultY: Math.round(330 * m3Root.uiScale)
         baseW: 276
@@ -3036,14 +3191,29 @@ Item {
                 }
                 Rectangle {
                     width: parent.width; height: parent.height - 32; radius: 16; color: m3Root.colLayer0; clip: true
+                    border.width: m3NotesEdit.activeFocus ? 1 : 0; border.color: m3Root.colPrimary
+
+                    MouseArea {
+                        anchors.fill: parent
+                        z: 2
+                        cursorShape: Qt.IBeamCursor
+                        onPressed: mouse => {
+                            mouse.accepted = false
+                            m3NotesWidget.focusActivate()
+                            m3NotesEdit.forceActiveFocus()
+                        }
+                    }
+
                     TextEdit {
                         id: m3NotesEdit
                         anchors.fill: parent; anchors.margins: 10
                         wrapMode: TextEdit.Wrap
+                        selectByMouse: true
+                        activeFocusOnPress: true
                         font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer0
                         text: ConfigStore.stringValue("m3.notes.text", "")
                         onTextChanged: ConfigStore.set("m3.notes.text", text)
-                        Text { visible: parent.text === ""; text: "Write something..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.5 }
+                        Text { visible: parent.text === ""; text: "Click to write..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.5 }
                     }
                 }
             }
