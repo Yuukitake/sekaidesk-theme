@@ -6,6 +6,7 @@ import "components"
 
 Item {
     id: m3Root
+    readonly property var shellRef: m3Root
     visible: false
 
     property var themeHub: null
@@ -3168,7 +3169,7 @@ Item {
         baseH: 184
 
         M3CookieClock {
-            m3Root: m3Root
+            m3Root: shellRef
         }
     }
 
@@ -3337,11 +3338,11 @@ Item {
     // =========================================================================
     // 13. Material 3 Expressive Overlays (On-demand lazy popups + OSD/Toasts/Corners)
     // =========================================================================
-    Loader { active: m3Root.sessionScreenOpen; sourceComponent: Component { M3SessionScreen { m3Root: m3Root } } }
-    Loader { active: m3Root.mediaPopupOpen; sourceComponent: Component { M3MediaPopup { m3Root: m3Root } } }
-    Loader { active: m3Root.clipboardPopupOpen; sourceComponent: Component { M3ClipboardPopup { m3Root: m3Root } } }
-    Loader { active: m3Root.presetStoreMounted; sourceComponent: Component { M3PresetStoreModal { m3Root: m3Root } } }
-    M3OsdPopup { m3Root: m3Root }
-    M3NotifPopup { m3Root: m3Root }
-    M3ScreenCorners { m3Root: m3Root }
+    Loader { active: m3Root.sessionScreenOpen; sourceComponent: Component { M3SessionScreen { m3Root: shellRef } } }
+    Loader { active: m3Root.mediaPopupOpen; sourceComponent: Component { M3MediaPopup { m3Root: shellRef } } }
+    Loader { active: m3Root.clipboardPopupOpen; sourceComponent: Component { M3ClipboardPopup { m3Root: shellRef } } }
+    Loader { active: m3Root.presetStoreMounted; sourceComponent: Component { M3PresetStoreModal { m3Root: shellRef } } }
+    M3OsdPopup { m3Root: shellRef }
+    M3NotifPopup { m3Root: shellRef }
+    M3ScreenCorners { m3Root: shellRef }
 }
