@@ -1190,7 +1190,7 @@ Item {
                 Connections {
                     target: MediaService
                     function onTimelineChanged() {
-                        if (!mwWavySeek.dragging && mwWavySeek.settleFrac < 0)
+                        if (!mwWavySeek.dragging)
                             mwInfoBox.mwLivePos = MediaService.positionSec
                     }
                     function onMediaChanged() {

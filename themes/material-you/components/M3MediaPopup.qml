@@ -18,7 +18,7 @@ PanelWindow {
     Connections {
         target: MediaService
         function onTimelineChanged() {
-            if (!mpWavySeek.dragging && mpWavySeek.settleFrac < 0)
+            if (!mpWavySeek.dragging)
                 m3MediaPopupWin.livePos = MediaService.positionSec
         }
         function onMediaChanged() {

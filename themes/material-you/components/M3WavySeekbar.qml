@@ -30,16 +30,9 @@ Item {
 
     Timer {
         id: wavySettleTimer
-        interval: 1400
+        interval: 1200
         repeat: false
         onTriggered: wavyRoot.settleFrac = -1
-    }
-
-    onValueChanged: {
-        if (settleFrac >= 0 && Math.abs(value - settleFrac) < 0.04) {
-            settleFrac = -1
-            wavySettleTimer.stop()
-        }
     }
 
     property real currentAmp: playing ? waveAmplitude : 0.0
