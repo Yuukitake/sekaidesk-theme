@@ -1183,7 +1183,36 @@ Item {
             }
 
             Item {
+                id: mwInfoBox
                 x: 124; y: 12; width: 282; height: 96
+                property real mwLivePos: MediaService.positionSec
+
+                Connections {
+                    target: MediaService
+                    function onTimelineChanged() {
+                        if (!mwWavySeek.dragging && mwWavySeek.settleFrac < 0)
+                            mwInfoBox.mwLivePos = MediaService.positionSec
+                    }
+                    function onMediaChanged() {
+                        mwWavySeek.settleFrac = -1
+                        mwInfoBox.mwLivePos = MediaService.positionSec
+                    }
+                }
+
+                Timer {
+                    id: mwLiveTimer
+                    interval: 500
+                    repeat: true
+                    running: mwWavySeek.visible && MediaService.hasSession && MediaService.isPlaying && !mwWavySeek.dragging && mwWavySeek.settleFrac < 0
+                    onTriggered: {
+                        const step = 0.5 * Math.max(0.1, MediaService.playbackRate)
+                        if (MediaService.durationSec > 0)
+                            mwInfoBox.mwLivePos = Math.min(MediaService.durationSec, mwInfoBox.mwLivePos + step)
+                        else
+                            mwInfoBox.mwLivePos += step
+                    }
+                }
+
                 Column {
                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; spacing: 2
                     Text { width: parent.width; elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.artist !== "") ? MediaService.artist : "Play"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.DemiBold; color: m3Root.colOnPrimaryContainer }
@@ -1214,12 +1243,14 @@ Item {
                             thumbGap: 4
                             activeColor: m3Root.colPrimary
                             trackColor: Qt.rgba(m3Root.colOnPrimaryContainer.r, m3Root.colOnPrimaryContainer.g, m3Root.colOnPrimaryContainer.b, 0.22)
-                            value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, MediaService.positionSec / MediaService.durationSec)) : 0
+                            value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, mwInfoBox.mwLivePos / MediaService.durationSec)) : 0
                             playing: MediaService.hasSession && MediaService.isPlaying
                             interactive: MediaService.canSeek && MediaService.durationSec > 0
                             onSeekRequested: frac => {
-                                if (MediaService.canSeek && MediaService.durationSec > 0)
-                                    MediaService.seek(frac * MediaService.durationSec)
+                                if (MediaService.canSeek && MediaService.durationSec > 0) {
+                                    mwInfoBox.mwLivePos = frac * MediaService.durationSec
+                                    MediaService.seek(mwInfoBox.mwLivePos)
+                                }
                             }
                         }
 
@@ -1231,7 +1262,7 @@ Item {
                                 font.family: "Segoe UI"; font.pixelSize: 10
                                 color: m3Root.colOnPrimaryContainer; opacity: 0.72
                                 text: {
-                                    const s = Math.max(0, Math.floor(Number(mwWavySeek.dragging ? (mwWavySeek.displayValue * MediaService.durationSec) : MediaService.positionSec) || 0))
+                                    const s = Math.max(0, Math.floor(Number(mwWavySeek.showingOverride ? (mwWavySeek.displayValue * MediaService.durationSec) : mwInfoBox.mwLivePos) || 0))
                                     const m = Math.floor(s / 60)
                                     const r = s % 60
                                     return m + ":" + (r < 10 ? "0" : "") + r

@@ -13,6 +13,33 @@ PanelWindow {
     readonly property int targetX: Math.max(12, m3Root.sw - targetW - 14)
     readonly property int targetY: 46
 
+    property real livePos: MediaService.positionSec
+
+    Connections {
+        target: MediaService
+        function onTimelineChanged() {
+            if (!mpWavySeek.dragging && mpWavySeek.settleFrac < 0)
+                m3MediaPopupWin.livePos = MediaService.positionSec
+        }
+        function onMediaChanged() {
+            mpWavySeek.settleFrac = -1
+            m3MediaPopupWin.livePos = MediaService.positionSec
+        }
+    }
+
+    Timer {
+        interval: 500
+        repeat: true
+        running: m3MediaPopupWin.visible && MediaService.hasSession && MediaService.isPlaying && !mpWavySeek.dragging && mpWavySeek.settleFrac < 0
+        onTriggered: {
+            const step = 0.5 * Math.max(0.1, MediaService.playbackRate)
+            if (MediaService.durationSec > 0)
+                m3MediaPopupWin.livePos = Math.min(MediaService.durationSec, m3MediaPopupWin.livePos + step)
+            else
+                m3MediaPopupWin.livePos += step
+        }
+    }
+
     function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
 
     function fmtSec(sec) {
@@ -176,19 +203,21 @@ PanelWindow {
                     id: mpWavySeek
                     width: parent.width
                     height: 22
-                    value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, MediaService.positionSec / MediaService.durationSec)) : 0
+                    value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, m3MediaPopupWin.livePos / MediaService.durationSec)) : 0
                     playing: MediaService.hasSession && MediaService.isPlaying
                     interactive: MediaService.canSeek && MediaService.durationSec > 0
                     activeColor: m3Root.colPrimary
                     trackColor: m3Root.colSurfaceVariant
                     onSeekRequested: frac => {
-                        if (MediaService.canSeek && MediaService.durationSec > 0)
-                            MediaService.seek(frac * MediaService.durationSec)
+                        if (MediaService.canSeek && MediaService.durationSec > 0) {
+                            m3MediaPopupWin.livePos = frac * MediaService.durationSec
+                            MediaService.seek(m3MediaPopupWin.livePos)
+                        }
                     }
                 }
                 Item {
                     width: parent.width; height: 14
-                    Text { anchors.left: parent.left; text: m3MediaPopupWin.fmtSec(mpWavySeek.dragging ? (mpWavySeek.displayValue * MediaService.durationSec) : MediaService.positionSec); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                    Text { anchors.left: parent.left; text: m3MediaPopupWin.fmtSec(mpWavySeek.showingOverride ? (mpWavySeek.displayValue * MediaService.durationSec) : m3MediaPopupWin.livePos); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
                     Text { anchors.right: parent.right; text: m3MediaPopupWin.fmtSec(MediaService.durationSec); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
                 }
             }

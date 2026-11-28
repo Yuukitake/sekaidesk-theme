@@ -18,13 +18,29 @@ Item {
     property bool showThumb: true
     property bool showStopDot: true
     property real dragFrac: 0.0
+    property real settleFrac: -1
     readonly property bool dragging: wavyMa.pressed
-    readonly property real displayValue: dragging ? dragFrac : Math.max(0, Math.min(1, value))
+    readonly property bool showingOverride: dragging || settleFrac >= 0
+    readonly property real displayValue: dragging ? dragFrac : (settleFrac >= 0 ? settleFrac : Math.max(0, Math.min(1, value)))
 
     readonly property real padX: Math.max(trackThickness * 0.5 + 1, thumbWidth * 0.5 + 2)
     readonly property real usableW: Math.max(1, width - padX * 2)
 
     signal seekRequested(real fraction)
+
+    Timer {
+        id: wavySettleTimer
+        interval: 1400
+        repeat: false
+        onTriggered: wavyRoot.settleFrac = -1
+    }
+
+    onValueChanged: {
+        if (settleFrac >= 0 && Math.abs(value - settleFrac) < 0.04) {
+            settleFrac = -1
+            wavySettleTimer.stop()
+        }
+    }
 
     property real currentAmp: playing ? waveAmplitude : 0.0
     Behavior on currentAmp {
@@ -179,9 +195,16 @@ Item {
         }
         onReleased: mouse => {
             if (wavyRoot.interactive) {
-                wavyRoot.dragFrac = fracFor(mouse.x)
-                wavyRoot.seekRequested(wavyRoot.dragFrac)
+                const f = fracFor(mouse.x)
+                wavyRoot.dragFrac = f
+                wavyRoot.settleFrac = f
+                wavySettleTimer.restart()
+                wavyRoot.seekRequested(f)
             }
+        }
+        onCanceled: {
+            wavyRoot.settleFrac = -1
+            wavySettleTimer.stop()
         }
     }
 }
