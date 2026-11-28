@@ -1343,7 +1343,7 @@ Item {
         readonly property int pillH: 64
         readonly property int appCount: (m3Root.m3DockApps || []).length
         readonly property int appsRowW: Math.max(slotW, appCount * slotW)
-        readonly property int pillW: Math.max(240, Math.min(m3Root.sw - 48, appsRowW + 120))
+        readonly property int pillW: Math.max(260, Math.min(m3Root.sw - 48, appsRowW + 142))
         readonly property int targetW: pillW + 24
         readonly property int targetH: 108
         readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
@@ -1438,17 +1438,26 @@ Item {
                 antialiasing: true
 
                 Row {
+                    id: m3DockRow
                     anchors.centerIn: parent
                     spacing: 8
 
                     // Pin Auto-Hide Toggle
                     Rectangle {
-                        width: 42; height: 42; radius: 21; anchors.verticalCenter: parent.verticalCenter
-                        color: m3DockPinMa.containsMouse ? m3Root.colSurfaceVariant : (m3Root.dockPinned ? Qt.rgba(m3Root.colPrimary.r, m3Root.colPrimary.g, m3Root.colPrimary.b, 0.16) : "transparent")
-                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 19; text: m3Root.hasSymbols ? "keep" : "📌"; color: m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                        width: 44; height: 44; radius: 22; anchors.verticalCenter: parent.verticalCenter
+                        color: m3DockPinMa.containsMouse ? m3Root.colPrimary : (m3Root.dockPinned ? m3Root.colPrimaryContainer : m3Root.colLayer1)
+                        Text {
+                            anchors.fill: parent
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.family: m3Root.iconFontName
+                            font.pixelSize: 20
+                            text: m3Root.hasSymbols ? "keep" : "📌"
+                            color: m3DockPinMa.containsMouse ? m3Root.colOnPrimary : (m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1)
+                        }
                         MouseArea {
                             id: m3DockPinMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onEntered: { m3DockWin.hoveredLabel = m3Root.dockPinned ? "Dock: Always Show" : "Dock: Auto-Hide"; m3DockWin.hoveredCenterX = m3DockPill.x + 33 }
+                            onEntered: { m3DockWin.hoveredLabel = m3Root.dockPinned ? "Dock: Always Show" : "Dock: Auto-Hide"; m3DockWin.hoveredCenterX = m3DockPill.x + 32 }
                             onExited: { if (m3DockWin.hoveredLabel.indexOf("Dock:") === 0) m3DockWin.hoveredLabel = "" }
                             onClicked: Qt.callLater(() => { if (m3Root.themeHub) m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide) })
                         }
@@ -1662,10 +1671,18 @@ Item {
                     Rectangle {
                         width: 44; height: 44; radius: 22; anchors.verticalCenter: parent.verticalCenter
                         color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
-                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 21; text: m3Root.hasSymbols ? "apps" : "⊞"; color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary }
+                        Text {
+                            anchors.fill: parent
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.family: m3Root.iconFontName
+                            font.pixelSize: 21
+                            text: m3Root.hasSymbols ? "apps" : "⊞"
+                            color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary
+                        }
                         MouseArea {
                             id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onEntered: { m3DockWin.hoveredLabel = "All Apps"; m3DockWin.hoveredCenterX = m3DockWin.targetW - 44 }
+                            onEntered: { m3DockWin.hoveredLabel = "All Apps"; m3DockWin.hoveredCenterX = m3DockPill.x + m3DockPill.width - 32 }
                             onExited: { if (m3DockWin.hoveredLabel === "All Apps") m3DockWin.hoveredLabel = "" }
                             onClicked: Qt.callLater(() => m3Root.toggleLauncher(false))
                         }
