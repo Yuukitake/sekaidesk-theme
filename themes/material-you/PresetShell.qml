@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import SekaiDesk
 import "components"
@@ -1093,16 +1094,52 @@ Item {
             width: 420; height: 120; radius: 30
             color: m3Root.colPrimaryContainer; border.width: 1; border.color: m3Root.colLayer0Border; clip: true
 
-            Rectangle {
-                x: 0; y: 0; width: 120; height: 120
-                topLeftRadius: 30; bottomLeftRadius: 30; topRightRadius: 0; bottomRightRadius: 0
-                color: m3Root.colLayer1; clip: true
-                Image { anchors.fill: parent; visible: MediaService.artUrl !== ""; source: MediaService.artUrl; fillMode: Image.PreserveAspectCrop; smooth: true }
-                Text { visible: MediaService.artUrl === ""; anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 38; text: m3Root.hasSymbols ? "music_note" : "♫"; color: m3Root.colOnPrimaryContainer; opacity: 0.78 }
+            Item {
+                x: 10; y: 10; width: 100; height: 100
+
+                Rectangle {
+                    id: mwArtMask
+                    anchors.fill: parent
+                    radius: 22
+                    visible: false
+                    layer.enabled: true
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 22
+                    color: m3Root.colLayer1
+                }
+
+                Item {
+                    anchors.fill: parent
+                    visible: MediaService.artUrl !== ""
+                    layer.enabled: visible
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: mwArtMask
+                    }
+                    Image {
+                        anchors.fill: parent
+                        source: MediaService.artUrl
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        smooth: true
+                    }
+                }
+
+                Text {
+                    visible: MediaService.artUrl === ""
+                    anchors.centerIn: parent
+                    font.family: m3Root.iconFontName; font.pixelSize: 36
+                    text: m3Root.hasSymbols ? "music_note" : "♫"
+                    color: m3Root.colOnPrimaryContainer; opacity: 0.78
+                }
             }
 
             Item {
-                x: 136; y: 12; width: 270; height: 96
+                x: 124; y: 12; width: 282; height: 96
                 Column {
                     anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; spacing: 2
                     Text { width: parent.width; elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.artist !== "") ? MediaService.artist : "Play"; font.family: "Segoe UI"; font.pixelSize: 15; font.weight: Font.DemiBold; color: m3Root.colOnPrimaryContainer }
@@ -3125,146 +3162,161 @@ Item {
         }
     }
 
-    M3DraggableWidget {
-        widgetKey: "calendar"
-        defaultX: Math.round(310 * m3Root.uiScale)
-        defaultY: 50
-        baseW: 276
-        baseH: 260
+    Loader {
+        active: m3Root.isWidgetShown("calendar")
+        sourceComponent: Component {
+            M3DraggableWidget {
+                widgetKey: "calendar"
+                defaultX: Math.round(310 * m3Root.uiScale)
+                defaultY: 50
+                baseW: 276
+                baseH: 260
 
-        Rectangle {
-            width: 276; height: 260; radius: 28
-            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
-            border.width: 1; border.color: m3Root.colLayer0Border
-
-            Column {
-                anchors.fill: parent; anchors.margins: 16; spacing: 8
-                Item {
-                    width: parent.width; height: 26
-                    Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: Qt.formatDate(new Date(m3Root.calYear, m3Root.calMonth, 1), "MMMM yyyy"); font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                    Row {
-                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                        Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "‹"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 0) { m3Root.calMonth = 11; m3Root.calYear -= 1 } else m3Root.calMonth -= 1 } } }
-                        Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "›"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 11) { m3Root.calMonth = 0; m3Root.calYear += 1 } else m3Root.calMonth += 1 } } }
-                    }
-                }
-                Grid {
-                    width: parent.width; columns: 7; rowSpacing: 4; columnSpacing: 2
-                    Repeater {
-                        model: ["M", "T", "W", "T", "F", "S", "S"]
-                        delegate: Text { required property string modelData; width: (parent.width - 12) / 7; horizontalAlignment: Text.AlignHCenter; text: modelData; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colPrimary }
-                    }
-                    Repeater {
-                        model: m3Root.calendarCells
-                        delegate: Rectangle {
-                            required property var modelData
-                            width: (parent.width - 12) / 7; height: 25; radius: 12
-                            color: modelData.isToday ? m3Root.colPrimary : "transparent"
-                            Text { anchors.centerIn: parent; text: String(modelData.day); font.family: "Segoe UI"; font.pixelSize: 11; font.weight: modelData.isToday ? Font.Bold : Font.Normal; color: modelData.isToday ? m3Root.colOnPrimary : m3Root.colOnLayer0; opacity: modelData.curMonth ? 1.0 : 0.35 }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    M3DraggableWidget {
-        id: m3NotesWidget
-        widgetKey: "notes"
-        allowFocus: true
-        defaultX: Math.round(310 * m3Root.uiScale)
-        defaultY: Math.round(330 * m3Root.uiScale)
-        baseW: 276
-        baseH: 210
-
-        Rectangle {
-            width: 276; height: 210; radius: 28
-            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
-            border.width: 1; border.color: m3Root.colLayer0Border
-
-            Column {
-                anchors.fill: parent; anchors.margins: 16; spacing: 8
-                Row {
-                    spacing: 8
-                    Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "sticky_note_2" : "📝"; color: m3Root.colPrimary }
-                    Text { anchors.verticalCenter: parent.verticalCenter; text: "Quick Notes"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                }
                 Rectangle {
-                    width: parent.width; height: parent.height - 32; radius: 16; color: m3Root.colLayer0; clip: true
-                    border.width: m3NotesEdit.activeFocus ? 1 : 0; border.color: m3Root.colPrimary
+                    width: 276; height: 260; radius: 28
+                    color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+                    border.width: 1; border.color: m3Root.colLayer0Border
 
-                    MouseArea {
-                        anchors.fill: parent
-                        z: 2
-                        cursorShape: Qt.IBeamCursor
-                        onPressed: mouse => {
-                            mouse.accepted = false
-                            m3NotesWidget.focusActivate()
-                            m3NotesEdit.forceActiveFocus()
-                        }
-                    }
-
-                    TextEdit {
-                        id: m3NotesEdit
-                        anchors.fill: parent; anchors.margins: 10
-                        wrapMode: TextEdit.Wrap
-                        selectByMouse: true
-                        activeFocusOnPress: true
-                        font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer0
-                        text: ConfigStore.stringValue("m3.notes.text", "")
-                        onTextChanged: ConfigStore.set("m3.notes.text", text)
-                        Text { visible: parent.text === ""; text: "Click to write..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.5 }
-                    }
-                }
-            }
-        }
-    }
-
-    M3DraggableWidget {
-        widgetKey: "todo"
-        defaultX: Math.round(310 * m3Root.uiScale)
-        defaultY: Math.round(560 * m3Root.uiScale)
-        baseW: 276
-        baseH: 240
-
-        Rectangle {
-            width: 276; height: 240; radius: 28
-            color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
-            border.width: 1; border.color: m3Root.colLayer0Border
-
-            Column {
-                anchors.fill: parent; anchors.margins: 16; spacing: 8
-                Item {
-                    width: parent.width; height: 26
-                    Row {
-                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
-                        Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "checklist" : "☑"; color: m3Root.colPrimary }
-                        Text { anchors.verticalCenter: parent.verticalCenter; text: "Todo (" + m3Root.m3Todos.length + ")"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
-                    }
-                    Rectangle {
-                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        width: 72; height: 24; radius: 12; color: m3Root.pomoRunning ? m3Root.colPrimary : m3Root.colLayer2
-                        Text { anchors.centerIn: parent; text: m3Root.fmtPomo(m3Root.pomoSeconds); font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.pomoRunning ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.pomoRunning = !m3Root.pomoRunning }
-                    }
-                }
-                ListView {
-                    width: parent.width; height: parent.height - 34; spacing: 5; clip: true
-                    model: m3Root.m3Todos
-                    Text { visible: m3Root.m3Todos.length === 0; anchors.centerIn: parent; text: "Add tasks in Control Center"; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1; opacity: 0.7 }
-                    delegate: Rectangle {
-                        required property var modelData
-                        required property int index
-                        width: ListView.view.width; height: 32; radius: 12; color: m3Root.colLayer2
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
-                            Rectangle {
-                                width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
-                                color: modelData.done ? m3Root.colPrimary : "transparent"; border.width: 2; border.color: m3Root.colPrimary
-                                Text { visible: !!modelData.done; anchors.centerIn: parent; text: "✓"; font.pixelSize: 9; font.weight: Font.Bold; color: m3Root.colOnPrimary }
-                                MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.toggleTodo(index) }
+                    Column {
+                        anchors.fill: parent; anchors.margins: 16; spacing: 8
+                        Item {
+                            width: parent.width; height: 26
+                            Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: Qt.formatDate(new Date(m3Root.calYear, m3Root.calMonth, 1), "MMMM yyyy"); font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            Row {
+                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                                Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "‹"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 0) { m3Root.calMonth = 11; m3Root.calYear -= 1 } else m3Root.calMonth -= 1 } } }
+                                Rectangle { width: 24; height: 24; radius: 12; color: m3Root.colLayer2; Text { anchors.centerIn: parent; text: "›"; color: m3Root.colOnLayer0; font.weight: Font.Bold } MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { if (m3Root.calMonth === 11) { m3Root.calMonth = 0; m3Root.calYear += 1 } else m3Root.calMonth += 1 } } }
                             }
-                            Text { width: parent.width - 26; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: modelData.text || ""; font.family: "Segoe UI"; font.pixelSize: 11; font.strikeout: !!modelData.done; color: m3Root.colOnLayer0; opacity: modelData.done ? 0.5 : 1.0 }
+                        }
+                        Grid {
+                            width: parent.width; columns: 7; rowSpacing: 4; columnSpacing: 2
+                            Repeater {
+                                model: ["M", "T", "W", "T", "F", "S", "S"]
+                                delegate: Text { required property string modelData; width: (parent.width - 12) / 7; horizontalAlignment: Text.AlignHCenter; text: modelData; font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.colPrimary }
+                            }
+                            Repeater {
+                                model: m3Root.calendarCells
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: (parent.width - 12) / 7; height: 25; radius: 12
+                                    color: modelData.isToday ? m3Root.colPrimary : "transparent"
+                                    Text { anchors.centerIn: parent; text: String(modelData.day); font.family: "Segoe UI"; font.pixelSize: 11; font.weight: modelData.isToday ? Font.Bold : Font.Normal; color: modelData.isToday ? m3Root.colOnPrimary : m3Root.colOnLayer0; opacity: modelData.curMonth ? 1.0 : 0.35 }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Loader {
+        active: m3Root.isWidgetShown("notes")
+        sourceComponent: Component {
+            M3DraggableWidget {
+                id: m3NotesWidget
+                widgetKey: "notes"
+                allowFocus: true
+                defaultX: Math.round(310 * m3Root.uiScale)
+                defaultY: Math.round(330 * m3Root.uiScale)
+                baseW: 276
+                baseH: 210
+
+                Rectangle {
+                    width: 276; height: 210; radius: 28
+                    color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+                    border.width: 1; border.color: m3Root.colLayer0Border
+
+                    Column {
+                        anchors.fill: parent; anchors.margins: 16; spacing: 8
+                        Row {
+                            spacing: 8
+                            Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "sticky_note_2" : "📝"; color: m3Root.colPrimary }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: "Quick Notes"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                        }
+                        Rectangle {
+                            width: parent.width; height: parent.height - 32; radius: 16; color: m3Root.colLayer0; clip: true
+                            border.width: m3NotesEdit.activeFocus ? 1 : 0; border.color: m3Root.colPrimary
+
+                            MouseArea {
+                                anchors.fill: parent
+                                z: 2
+                                cursorShape: Qt.IBeamCursor
+                                onPressed: mouse => {
+                                    mouse.accepted = false
+                                    m3NotesWidget.focusActivate()
+                                    m3NotesEdit.forceActiveFocus()
+                                }
+                            }
+
+                            TextEdit {
+                                id: m3NotesEdit
+                                anchors.fill: parent; anchors.margins: 10
+                                wrapMode: TextEdit.Wrap
+                                selectByMouse: true
+                                activeFocusOnPress: true
+                                font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer0
+                                text: ConfigStore.stringValue("m3.notes.text", "")
+                                onTextChanged: ConfigStore.set("m3.notes.text", text)
+                                Text { visible: parent.text === ""; text: "Click to write..."; font.family: "Segoe UI"; font.pixelSize: 12; color: m3Root.colOnLayer1; opacity: 0.5 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Loader {
+        active: m3Root.isWidgetShown("todo")
+        sourceComponent: Component {
+            M3DraggableWidget {
+                widgetKey: "todo"
+                defaultX: Math.round(310 * m3Root.uiScale)
+                defaultY: Math.round(560 * m3Root.uiScale)
+                baseW: 276
+                baseH: 240
+
+                Rectangle {
+                    width: 276; height: 240; radius: 28
+                    color: Qt.rgba(m3Root.colLayer1.r, m3Root.colLayer1.g, m3Root.colLayer1.b, 0.78)
+                    border.width: 1; border.color: m3Root.colLayer0Border
+
+                    Column {
+                        anchors.fill: parent; anchors.margins: 16; spacing: 8
+                        Item {
+                            width: parent.width; height: 26
+                            Row {
+                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                Text { anchors.verticalCenter: parent.verticalCenter; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "checklist" : "☑"; color: m3Root.colPrimary }
+                                Text { anchors.verticalCenter: parent.verticalCenter; text: "Todo (" + m3Root.m3Todos.length + ")"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: m3Root.colOnLayer0 }
+                            }
+                            Rectangle {
+                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                width: 72; height: 24; radius: 12; color: m3Root.pomoRunning ? m3Root.colPrimary : m3Root.colLayer2
+                                Text { anchors.centerIn: parent; text: m3Root.fmtPomo(m3Root.pomoSeconds); font.family: "Segoe UI"; font.pixelSize: 10; font.weight: Font.Bold; color: m3Root.pomoRunning ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.pomoRunning = !m3Root.pomoRunning }
+                            }
+                        }
+                        ListView {
+                            width: parent.width; height: parent.height - 34; spacing: 5; clip: true
+                            model: m3Root.m3Todos
+                            Text { visible: m3Root.m3Todos.length === 0; anchors.centerIn: parent; text: "Add tasks in Control Center"; font.family: "Segoe UI"; font.pixelSize: 11; color: m3Root.colOnLayer1; opacity: 0.7 }
+                            delegate: Rectangle {
+                                required property var modelData
+                                required property int index
+                                width: ListView.view.width; height: 32; radius: 12; color: m3Root.colLayer2
+                                Row {
+                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
+                                    Rectangle {
+                                        width: 16; height: 16; radius: 8; anchors.verticalCenter: parent.verticalCenter
+                                        color: modelData.done ? m3Root.colPrimary : "transparent"; border.width: 2; border.color: m3Root.colPrimary
+                                        Text { visible: !!modelData.done; anchors.centerIn: parent; text: "✓"; font.pixelSize: 9; font.weight: Font.Bold; color: m3Root.colOnPrimary }
+                                        MouseArea { anchors.fill: parent; anchors.margins: -3; cursorShape: Qt.PointingHandCursor; onClicked: m3Root.toggleTodo(index) }
+                                    }
+                                    Text { width: parent.width - 26; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: modelData.text || ""; font.family: "Segoe UI"; font.pixelSize: 11; font.strikeout: !!modelData.done; color: m3Root.colOnLayer0; opacity: modelData.done ? 0.5 : 1.0 }
+                                }
+                            }
                         }
                     }
                 }
@@ -3273,11 +3325,11 @@ Item {
     }
 
     // =========================================================================
-    // 13. Material 3 Expressive Overlays (Session, Media, Clipboard, OSD, Toasts, Corners)
+    // 13. Material 3 Expressive Overlays (On-demand lazy popups + OSD/Toasts/Corners)
     // =========================================================================
-    M3SessionScreen { m3Root: m3Root }
-    M3MediaPopup { m3Root: m3Root }
-    M3ClipboardPopup { m3Root: m3Root }
+    Loader { active: m3Root.sessionScreenOpen; sourceComponent: Component { M3SessionScreen { m3Root: m3Root } } }
+    Loader { active: m3Root.mediaPopupOpen; sourceComponent: Component { M3MediaPopup { m3Root: m3Root } } }
+    Loader { active: m3Root.clipboardPopupOpen; sourceComponent: Component { M3ClipboardPopup { m3Root: m3Root } } }
     M3OsdPopup { m3Root: m3Root }
     M3NotifPopup { m3Root: m3Root }
     M3ScreenCorners { m3Root: m3Root }
