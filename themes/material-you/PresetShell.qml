@@ -54,6 +54,10 @@ Item {
     property bool clipboardPopupOpen: false
     property double clipboardClosedAt: 0
 
+    property bool presetStoreOpen: false
+    property double presetStoreClosedAt: 0
+    property bool presetStoreMounted: false
+
     property int widgetResetGen: 0
     property int widgetVisGen: 0
 
@@ -171,6 +175,22 @@ Item {
         sessionScreenOpen = false
         mediaPopupOpen = false
         clipboardPopupOpen = false
+        presetStoreOpen = false
+    }
+
+    function togglePresetStore() {
+        const wasOpen = presetStoreOpen
+        closeAllPopups()
+        if (!wasOpen && (Date.now() - presetStoreClosedAt) < 280)
+            return
+        if (wasOpen) {
+            presetStoreClosedAt = Date.now()
+            presetStoreOpen = false
+        } else {
+            presetStoreMounted = true
+            ThemeStore.refreshCatalog()
+            presetStoreOpen = true
+        }
     }
 
     function toggleQuickPanel(fromHotkey) {
@@ -857,18 +877,11 @@ Item {
 
                     Rectangle {
                         height: 22; width: m3BarPresetTxt.implicitWidth + 16; radius: 11
-                        color: m3BarPresetMa.containsMouse ? m3Root.colPrimary : m3Root.colPrimaryContainer
-                        Text { id: m3BarPresetTxt; anchors.centerIn: parent; text: "Presets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: m3BarPresetMa.containsMouse ? m3Root.colOnPrimary : m3Root.colOnPrimaryContainer }
+                        color: (m3Root.presetStoreOpen || m3BarPresetMa.containsMouse) ? m3Root.colPrimary : m3Root.colPrimaryContainer
+                        Text { id: m3BarPresetTxt; anchors.centerIn: parent; text: "Presets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: (m3Root.presetStoreOpen || m3BarPresetMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnPrimaryContainer }
                         MouseArea {
                             id: m3BarPresetMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => {
-                                if (m3Root.themeHub) {
-                                    m3Root.themeHub.landscapeContent = "settings"
-                                    m3Root.themeHub.settingsSection = "presets"
-                                    m3Root.themeHub.settingsOpen = true
-                                    ThemeStore.refreshCatalog()
-                                }
-                            })
+                            onClicked: Qt.callLater(() => m3Root.togglePresetStore())
                         }
                     }
 
@@ -1821,11 +1834,8 @@ Item {
                                         m3Root.sidebarOpen = false
                                         if (inst && m3Root.themeHub) {
                                             m3Root.themeHub.requestPresetSwitch(pid)
-                                        } else if (m3Root.themeHub) {
-                                            m3Root.themeHub.landscapeContent = "settings"
-                                            m3Root.themeHub.settingsSection = "presets"
-                                            m3Root.themeHub.settingsOpen = true
-                                            ThemeStore.refreshCatalog()
+                                        } else {
+                                            m3Root.togglePresetStore()
                                         }
                                     })
                                 }
@@ -3330,6 +3340,7 @@ Item {
     Loader { active: m3Root.sessionScreenOpen; sourceComponent: Component { M3SessionScreen { m3Root: m3Root } } }
     Loader { active: m3Root.mediaPopupOpen; sourceComponent: Component { M3MediaPopup { m3Root: m3Root } } }
     Loader { active: m3Root.clipboardPopupOpen; sourceComponent: Component { M3ClipboardPopup { m3Root: m3Root } } }
+    Loader { active: m3Root.presetStoreMounted; sourceComponent: Component { M3PresetStoreModal { m3Root: m3Root } } }
     M3OsdPopup { m3Root: m3Root }
     M3NotifPopup { m3Root: m3Root }
     M3ScreenCorners { m3Root: m3Root }
