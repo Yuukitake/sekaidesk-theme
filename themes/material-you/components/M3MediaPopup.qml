@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import SekaiDesk
 
@@ -8,7 +9,7 @@ PanelWindow {
 
     visible: m3Root.mediaPopupOpen
     readonly property int targetW: 368
-    readonly property int targetH: (MediaService.players || []).length > 1 ? 216 : 182
+    readonly property int targetH: (MediaService.players || []).length > 1 ? 230 : 196
     readonly property int targetX: Math.max(12, m3Root.sw - targetW - 14)
     readonly property int targetY: 46
 
@@ -92,14 +93,32 @@ PanelWindow {
 
                 Rectangle {
                     width: 82; height: 82; radius: 18
-                    color: m3Root.colPrimaryContainer; clip: true
-                    Image {
+                    color: m3Root.colPrimaryContainer
+
+                    Rectangle {
+                        id: mpArtMask
                         anchors.fill: parent
-                        source: MediaService.artUrl || ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true; cache: true
-                        visible: MediaService.artUrl !== ""
+                        radius: 18
+                        visible: false
+                        layer.enabled: true
                     }
+
+                    Item {
+                        anchors.fill: parent
+                        visible: MediaService.artUrl !== ""
+                        layer.enabled: visible
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: mpArtMask
+                        }
+                        Image {
+                            anchors.fill: parent
+                            source: MediaService.artUrl || ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true; cache: true; smooth: true
+                        }
+                    }
+
                     Text {
                         visible: MediaService.artUrl === ""
                         anchors.centerIn: parent
@@ -133,7 +152,9 @@ PanelWindow {
                             MouseArea { id: mpPrevMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.previous()) }
                         }
                         Rectangle {
-                            width: 44; height: 32; radius: 16
+                            width: 46; height: 34
+                            radius: MediaService.isPlaying ? 12 : 17
+                            Behavior on radius { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                             color: m3Root.colPrimary
                             Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? (MediaService.isPlaying ? "pause" : "play_arrow") : (MediaService.isPlaying ? "⏸" : "▶"); color: m3Root.colOnPrimary }
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => MediaService.playPause()) }
@@ -151,30 +172,23 @@ PanelWindow {
             // Seekbar + timestamps
             Column {
                 width: parent.width; spacing: 4
-                Rectangle {
-                    id: mpSeekTrack
-                    width: parent.width; height: 8; radius: 4
-                    color: m3Root.colSurfaceVariant
-                    readonly property real frac: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, MediaService.positionSec / MediaService.durationSec)) : 0
-                    Rectangle {
-                        width: Math.max(8, parent.width * parent.frac)
-                        height: parent.height; radius: 4
-                        color: m3Root.colPrimary
-                    }
-                    MouseArea {
-                        anchors.fill: parent; anchors.margins: -4
-                        cursorShape: MediaService.canSeek ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: mouse => {
-                            if (MediaService.canSeek && MediaService.durationSec > 0) {
-                                const f = Math.max(0, Math.min(1, mouse.x / Math.max(1, width)))
-                                MediaService.seek(f * MediaService.durationSec)
-                            }
-                        }
+                M3WavySeekbar {
+                    id: mpWavySeek
+                    width: parent.width
+                    height: 22
+                    value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, MediaService.positionSec / MediaService.durationSec)) : 0
+                    playing: MediaService.hasSession && MediaService.isPlaying
+                    interactive: MediaService.canSeek && MediaService.durationSec > 0
+                    activeColor: m3Root.colPrimary
+                    trackColor: m3Root.colSurfaceVariant
+                    onSeekRequested: frac => {
+                        if (MediaService.canSeek && MediaService.durationSec > 0)
+                            MediaService.seek(frac * MediaService.durationSec)
                     }
                 }
                 Item {
                     width: parent.width; height: 14
-                    Text { anchors.left: parent.left; text: m3MediaPopupWin.fmtSec(MediaService.positionSec); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
+                    Text { anchors.left: parent.left; text: m3MediaPopupWin.fmtSec(mpWavySeek.dragging ? (mpWavySeek.displayValue * MediaService.durationSec) : MediaService.positionSec); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
                     Text { anchors.right: parent.right; text: m3MediaPopupWin.fmtSec(MediaService.durationSec); font.family: "Segoe UI"; font.pixelSize: 10; color: m3Root.colOnLayer1 }
                 }
             }

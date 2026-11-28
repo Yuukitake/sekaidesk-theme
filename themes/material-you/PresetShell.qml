@@ -1190,7 +1190,70 @@ Item {
                     Text { width: parent.width; elide: Text.ElideRight; text: (MediaService.hasSession && MediaService.title !== "") ? MediaService.title : "Something"; font.family: "Segoe UI"; font.pixelSize: 13; color: m3Root.colOnPrimaryContainer; opacity: 0.65 }
                 }
 
+                Item {
+                    anchors.left: parent.left
+                    anchors.right: mwCtrlPill.left
+                    anchors.rightMargin: 10
+                    anchors.bottom: parent.bottom
+                    height: 44
+
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        spacing: 2
+
+                        M3WavySeekbar {
+                            id: mwWavySeek
+                            width: parent.width
+                            height: 18
+                            waveAmplitude: 2.4
+                            waveLength: 18
+                            trackThickness: 3.5
+                            thumbWidth: 3.5
+                            thumbHeight: 14
+                            thumbGap: 4
+                            activeColor: m3Root.colPrimary
+                            trackColor: Qt.rgba(m3Root.colOnPrimaryContainer.r, m3Root.colOnPrimaryContainer.g, m3Root.colOnPrimaryContainer.b, 0.22)
+                            value: (MediaService.durationSec > 0) ? Math.max(0, Math.min(1, MediaService.positionSec / MediaService.durationSec)) : 0
+                            playing: MediaService.hasSession && MediaService.isPlaying
+                            interactive: MediaService.canSeek && MediaService.durationSec > 0
+                            onSeekRequested: frac => {
+                                if (MediaService.canSeek && MediaService.durationSec > 0)
+                                    MediaService.seek(frac * MediaService.durationSec)
+                            }
+                        }
+
+                        Item {
+                            width: parent.width
+                            height: 13
+                            Text {
+                                anchors.left: parent.left
+                                font.family: "Segoe UI"; font.pixelSize: 10
+                                color: m3Root.colOnPrimaryContainer; opacity: 0.72
+                                text: {
+                                    const s = Math.max(0, Math.floor(Number(mwWavySeek.dragging ? (mwWavySeek.displayValue * MediaService.durationSec) : MediaService.positionSec) || 0))
+                                    const m = Math.floor(s / 60)
+                                    const r = s % 60
+                                    return m + ":" + (r < 10 ? "0" : "") + r
+                                }
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                font.family: "Segoe UI"; font.pixelSize: 10
+                                color: m3Root.colOnPrimaryContainer; opacity: 0.72
+                                text: {
+                                    const s = Math.max(0, Math.floor(Number(MediaService.durationSec) || 0))
+                                    const m = Math.floor(s / 60)
+                                    const r = s % 60
+                                    return m + ":" + (r < 10 ? "0" : "") + r
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Rectangle {
+                    id: mwCtrlPill
                     anchors.right: parent.right; anchors.bottom: parent.bottom
                     width: mwCtrlRow.implicitWidth + 12; height: 44; radius: 22
                     color: Qt.rgba(m3Root.colOnPrimaryContainer.r, m3Root.colOnPrimaryContainer.g, m3Root.colOnPrimaryContainer.b, 0.12)
