@@ -60,6 +60,12 @@ Item {
     property double presetStoreClosedAt: 0
     property bool presetStoreMounted: false
 
+    property bool dockMenuOpen: false
+    property double dockMenuClosedAt: 0
+    property var dockMenuItem: null
+    property int dockMenuAnchorX: 960
+    property bool dockMenuMounted: false
+
     property int widgetResetGen: 0
     property int widgetVisGen: 0
 
@@ -178,6 +184,25 @@ Item {
         mediaPopupOpen = false
         clipboardPopupOpen = false
         presetStoreOpen = false
+        dockMenuOpen = false
+    }
+
+    function openDockMenu(item, anchorX) {
+        if (!item || !item.target)
+            return
+        const sameTarget = dockMenuOpen && dockMenuItem && dockMenuItem.target === item.target
+        closeAllPopups()
+        if (sameTarget) {
+            dockMenuClosedAt = Date.now()
+            dockMenuOpen = false
+            return
+        }
+        if (!sameTarget && (Date.now() - dockMenuClosedAt) < 280)
+            return
+        dockMenuMounted = true
+        dockMenuItem = item
+        dockMenuAnchorX = anchorX
+        dockMenuOpen = true
     }
 
     function togglePresetStore() {
@@ -1296,7 +1321,7 @@ Item {
     }
 
     // =========================================================================
-    // 8. Pure Anti-Aliased Floating Dock + Real Auto-Hide / Dodge Active Windows
+    // 8. Material 3 Expressive Bottom Dock (Squircle Icons, Drag Reorder, File Drops, Context Menu)
     // =========================================================================
     PanelWindow {
         id: m3DockWin
@@ -1305,11 +1330,22 @@ Item {
         blurBehind: false
         color: "transparent"
 
-        readonly property int tileCount: m3Root.m3DockApps.length + 2
-        readonly property int pillW: Math.max(200, Math.min(m3Root.sw - 80, tileCount * 46 + 44))
-        readonly property int pillH: 54
-        readonly property int targetW: pillW + 12
-        readonly property int targetH: pillH + 16
+        property bool dropFlash: false
+        property string hoveredLabel: ""
+        property real hoveredCenterX: 0
+        property int dragFromIdx: -1
+        property int dragToIdx: -1
+        property real dragStartHostX: 0
+        property real dragDeltaX: 0
+        property bool dragActive: false
+
+        readonly property int slotW: 54
+        readonly property int pillH: 64
+        readonly property int appCount: (m3Root.m3DockApps || []).length
+        readonly property int appsRowW: Math.max(slotW, appCount * slotW)
+        readonly property int pillW: Math.max(240, Math.min(m3Root.sw - 48, appsRowW + 120))
+        readonly property int targetW: pillW + 24
+        readonly property int targetH: 108
         readonly property int targetX: Math.round((m3Root.sw - targetW) * 0.5)
         readonly property int targetY: Math.max(48, m3Root.sh - targetH)
 
@@ -1318,7 +1354,9 @@ Item {
                 && WindowTracker.dockOverlap
                 && !WindowTracker.bottomEdgeHovered
                 && !m3DockHover.hovered
-                && !m3Root.launcherOpen)
+                && !m3Root.launcherOpen
+                && !m3Root.dockMenuOpen
+                && !m3DockWin.dragActive)
 
         property real hideProgress: dockShouldHide ? 1.0 : 0.0
         Behavior on hideProgress {
@@ -1328,6 +1366,13 @@ Item {
         clickThrough: hideProgress > 0.85
 
         function syncGeo() { setPanelGeometry(targetX, targetY, targetW, targetH) }
+
+        Timer {
+            id: m3DropFlashTimer
+            interval: 1200
+            repeat: false
+            onTriggered: m3DockWin.dropFlash = false
+        }
 
         x: targetX; y: targetY; width: targetW; height: targetH
 
@@ -1340,87 +1385,290 @@ Item {
 
         onFilesDropped: files => {
             const list = files
-            Qt.callLater(() => AppLauncher.pinDroppedFiles(list))
+            Qt.callLater(() => {
+                const added = AppLauncher.pinDroppedFiles(list)
+                if (added > 0) {
+                    m3DockWin.dropFlash = true
+                    m3DropFlashTimer.restart()
+                }
+            })
         }
 
         Item {
             anchors.fill: parent
             HoverHandler { id: m3DockHover }
 
+            // Floating Hover Tooltip OR Drop Feedback Pill
+            Rectangle {
+                id: m3DockTooltip
+                visible: (m3DockWin.dropFlash || (m3DockWin.hoveredLabel !== "" && !m3DockWin.dragActive)) && m3DockWin.hideProgress < 0.25
+                y: 2 + Math.round(m3DockWin.hideProgress * (m3DockWin.targetH + 8))
+                x: m3DockWin.dropFlash
+                   ? Math.round((parent.width - width) * 0.5)
+                   : Math.max(8, Math.min(parent.width - width - 8, Math.round(m3DockWin.hoveredCenterX - width * 0.5)))
+                height: 26
+                width: Math.min(220, m3DockTipTxt.implicitWidth + 20)
+                radius: 13
+                color: m3DockWin.dropFlash ? m3Root.colPrimary : m3Root.colLayer1
+                border.width: 1
+                border.color: m3DockWin.dropFlash ? m3Root.colPrimary : m3Root.colLayer0Border
+                Behavior on x { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
+
+                Text {
+                    id: m3DockTipTxt
+                    anchors.centerIn: parent
+                    width: Math.min(200, implicitWidth)
+                    elide: Text.ElideRight
+                    text: m3DockWin.dropFlash ? "Pinned to Taskbar!" : m3DockWin.hoveredLabel
+                    font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold
+                    color: m3DockWin.dropFlash ? m3Root.colOnPrimary : m3Root.colOnLayer0
+                }
+            }
+
             Rectangle {
                 id: m3DockPill
-                x: 6
-                y: 4 + Math.round(m3DockWin.hideProgress * (m3DockWin.targetH + 8))
+                x: 12
+                y: 34 + Math.round(m3DockWin.hideProgress * (m3DockWin.targetH + 8))
                 width: m3DockWin.pillW
                 height: m3DockWin.pillH
-                radius: 27
+                radius: 32
                 color: m3Root.colLayer0
-                border.width: 1
-                border.color: m3Root.colLayer0Border
+                border.width: m3DockWin.dropFlash ? 2 : 1
+                border.color: m3DockWin.dropFlash ? m3Root.colPrimary : m3Root.colLayer0Border
                 antialiasing: true
 
                 Row {
                     anchors.centerIn: parent
-                    spacing: 6
+                    spacing: 8
 
+                    // Pin Auto-Hide Toggle
                     Rectangle {
-                        width: 38; height: 38; radius: 19; anchors.verticalCenter: parent.verticalCenter
+                        width: 42; height: 42; radius: 21; anchors.verticalCenter: parent.verticalCenter
                         color: m3DockPinMa.containsMouse ? m3Root.colSurfaceVariant : (m3Root.dockPinned ? Qt.rgba(m3Root.colPrimary.r, m3Root.colPrimary.g, m3Root.colPrimary.b, 0.16) : "transparent")
-                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 18; text: m3Root.hasSymbols ? "keep" : "📌"; color: m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1 }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 19; text: m3Root.hasSymbols ? "keep" : "📌"; color: m3Root.dockPinned ? m3Root.colPrimary : m3Root.colOnLayer1 }
                         MouseArea {
                             id: m3DockPinMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onEntered: { m3DockWin.hoveredLabel = m3Root.dockPinned ? "Dock: Always Show" : "Dock: Auto-Hide"; m3DockWin.hoveredCenterX = m3DockPill.x + 33 }
+                            onExited: { if (m3DockWin.hoveredLabel.indexOf("Dock:") === 0) m3DockWin.hoveredLabel = "" }
                             onClicked: Qt.callLater(() => { if (m3Root.themeHub) m3Root.themeHub.setDockAutoHide(!m3Root.themeHub.dockAutoHide) })
                         }
                     }
 
-                    Rectangle { width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
+                    Rectangle { width: 1; height: 26; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
-                    Repeater {
-                        model: m3Root.m3DockApps
-                        delegate: Item {
-                            required property var modelData
-                            width: 40; height: 40; anchors.verticalCenter: parent.verticalCenter
-                            Rectangle {
-                                anchors.fill: parent; radius: 14
-                                color: m3DockItMa.containsMouse ? m3Root.colSurfaceVariant : (modelData.active ? m3Root.colPrimaryContainer : "transparent")
-                                Image {
-                                    anchors.centerIn: parent; width: 26; height: 26; asynchronous: true; cache: true; smooth: true; mipmap: true
-                                    source: "image://winicon/" + encodeURIComponent(modelData.target)
-                                    scale: m3DockItMa.containsMouse ? 1.12 : 1.0
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    // Draggable & Squircle-Masked App Slots
+                    Item {
+                        id: m3DockAppsHost
+                        width: m3DockWin.appsRowW
+                        height: 54
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Repeater {
+                            model: m3Root.m3DockApps
+                            delegate: Item {
+                                id: dockSlotItem
+                                required property var modelData
+                                required property int index
+
+                                readonly property bool isDraggingThis: m3DockWin.dragActive && m3DockWin.dragFromIdx === index
+                                readonly property real slotOffset: {
+                                    if (!m3DockWin.dragActive || m3DockWin.dragFromIdx < 0 || index === m3DockWin.dragFromIdx)
+                                        return 0
+                                    if (m3DockWin.dragFromIdx < m3DockWin.dragToIdx && index > m3DockWin.dragFromIdx && index <= m3DockWin.dragToIdx)
+                                        return -m3DockWin.slotW
+                                    if (m3DockWin.dragFromIdx > m3DockWin.dragToIdx && index >= m3DockWin.dragToIdx && index < m3DockWin.dragFromIdx)
+                                        return m3DockWin.slotW
+                                    return 0
                                 }
+
+                                x: isDraggingThis
+                                   ? Math.max(-8, Math.min(m3DockWin.appsRowW - width + 8, index * m3DockWin.slotW + m3DockWin.dragDeltaX))
+                                   : (index * m3DockWin.slotW + slotOffset)
+                                y: 0
+                                width: m3DockWin.slotW
+                                height: 54
+                                z: isDraggingThis ? 10 : (m3DockItMa.containsMouse ? 4 : 1)
+
+                                Behavior on x {
+                                    enabled: !dockSlotItem.isDraggingThis
+                                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                }
+
+                                // Subtle pinned-vs-running boundary tick before first unpinned app
                                 Rectangle {
-                                    visible: modelData.running
-                                    anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 2
-                                    width: modelData.active ? 14 : 6; height: 3; radius: 1.5; color: m3Root.colPrimary
+                                    visible: !modelData.pinned && index > 0 && m3Root.m3DockApps[index - 1] && m3Root.m3DockApps[index - 1].pinned
+                                    x: -1
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 2; height: 22; radius: 1
+                                    color: m3Root.colPrimary
+                                    opacity: 0.45
                                 }
-                            }
-                            MouseArea {
-                                id: m3DockItMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onClicked: mouse => {
-                                    const tgt = modelData.target; const nm = modelData.name || tgt; const args = modelData.args || ""
-                                    const run = !!modelData.running; const pin = !!modelData.pinned
-                                    Qt.callLater(() => {
-                                        if (mouse.button === Qt.RightButton) {
-                                            if (pin) AppLauncher.removePinnedByTarget(tgt)
-                                            else AppLauncher.addPinnedApp(nm, tgt, "")
-                                        } else {
-                                            if (run) WindowTracker.activateOrToggle(tgt)
-                                            else AppLauncher.launch(tgt, args)
+
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.verticalCenterOffset: m3DockItMa.containsMouse && !dockSlotItem.isDraggingThis ? -3 : 0
+                                    Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    width: 46; height: 46; radius: 16
+                                    color: dockSlotItem.isDraggingThis
+                                           ? m3Root.colPrimaryContainer
+                                           : (m3DockItMa.containsMouse
+                                              ? m3Root.colLayer2
+                                              : (modelData.active ? m3Root.colPrimaryContainer : "transparent"))
+                                    border.width: modelData.active ? 1 : 0
+                                    border.color: Qt.rgba(m3Root.colPrimary.r, m3Root.colPrimary.g, m3Root.colPrimary.b, 0.55)
+                                    scale: dockSlotItem.isDraggingThis ? 1.12 : (m3DockItMa.containsMouse ? 1.08 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                    Item {
+                                        anchors.centerIn: parent
+                                        width: 34; height: 34
+
+                                        Rectangle {
+                                            id: dockSqMask
+                                            anchors.fill: parent
+                                            radius: 11
+                                            visible: false
+                                            layer.enabled: true
                                         }
-                                    })
+
+                                        Item {
+                                            anchors.fill: parent
+                                            layer.enabled: true
+                                            layer.effect: MultiEffect {
+                                                maskEnabled: true
+                                                maskSource: dockSqMask
+                                            }
+                                            Image {
+                                                anchors.fill: parent
+                                                asynchronous: true; cache: true; smooth: true; mipmap: true
+                                                sourceSize: Qt.size(64, 64)
+                                                fillMode: Image.PreserveAspectCrop
+                                                source: modelData.target ? ("image://winicon/" + encodeURIComponent(modelData.target)) : ""
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        visible: modelData.running
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.bottom; anchors.bottomMargin: 2
+                                        width: modelData.active ? 16 : 6; height: 3; radius: 1.5
+                                        color: modelData.active ? m3Root.colPrimary : m3Root.colOnLayer1
+                                        Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: m3DockItMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: dockSlotItem.isDraggingThis ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+                                    onEntered: {
+                                        if (!m3DockWin.dragActive) {
+                                            m3DockWin.hoveredLabel = modelData.name || "App"
+                                            const pt = dockSlotItem.mapToItem(m3DockWin.contentItem, dockSlotItem.width * 0.5, 0)
+                                            m3DockWin.hoveredCenterX = pt.x
+                                        }
+                                    }
+                                    onExited: {
+                                        if (m3DockWin.hoveredLabel === (modelData.name || "App"))
+                                            m3DockWin.hoveredLabel = ""
+                                    }
+
+                                    onPressed: mouse => {
+                                        if (mouse.button === Qt.LeftButton) {
+                                            const pt = dockSlotItem.mapToItem(m3DockAppsHost, mouse.x, mouse.y)
+                                            m3DockWin.dragFromIdx = index
+                                            m3DockWin.dragToIdx = index
+                                            m3DockWin.dragStartHostX = pt.x
+                                            m3DockWin.dragDeltaX = 0
+                                            m3DockWin.dragActive = false
+                                        }
+                                    }
+                                    onPositionChanged: mouse => {
+                                        if (m3DockWin.dragFromIdx === index && (mouse.buttons & Qt.LeftButton)) {
+                                            const pt = dockSlotItem.mapToItem(m3DockAppsHost, mouse.x, mouse.y)
+                                            const d = pt.x - m3DockWin.dragStartHostX
+                                            if (!m3DockWin.dragActive && Math.abs(d) > 8) {
+                                                m3DockWin.dragActive = true
+                                                m3DockWin.hoveredLabel = ""
+                                            }
+                                            if (m3DockWin.dragActive) {
+                                                m3DockWin.dragDeltaX = d
+                                                const cnt = m3DockWin.appCount
+                                                m3DockWin.dragToIdx = Math.max(0, Math.min(cnt - 1, Math.round(index + d / m3DockWin.slotW)))
+                                            }
+                                        }
+                                    }
+                                    onReleased: mouse => {
+                                        if (mouse.button === Qt.RightButton) {
+                                            const snap = {
+                                                name: modelData.name || modelData.target || "App",
+                                                target: modelData.target || "",
+                                                args: modelData.args || "",
+                                                pinned: !!modelData.pinned,
+                                                running: !!modelData.running,
+                                                active: !!modelData.active
+                                            }
+                                            const pt = dockSlotItem.mapToItem(m3DockWin.contentItem, dockSlotItem.width * 0.5, 0)
+                                            const screenX = m3DockWin.targetX + Math.round(pt.x)
+                                            Qt.callLater(() => m3Root.openDockMenu(snap, screenX))
+                                            return
+                                        }
+
+                                        if (mouse.button === Qt.LeftButton) {
+                                            const wasDrag = m3DockWin.dragActive
+                                            const fromI = m3DockWin.dragFromIdx
+                                            const toI = m3DockWin.dragToIdx
+                                            m3DockWin.dragFromIdx = -1
+                                            m3DockWin.dragToIdx = -1
+                                            m3DockWin.dragDeltaX = 0
+                                            m3DockWin.dragActive = false
+
+                                            if (wasDrag) {
+                                                if (fromI >= 0 && toI >= 0 && fromI !== toI) {
+                                                    const appsSnap = (m3Root.m3DockApps || []).slice(0)
+                                                    Qt.callLater(() => AppLauncher.reorderDock(appsSnap, fromI, toI))
+                                                }
+                                            } else {
+                                                const tgt = modelData.target || ""; const args = modelData.args || ""
+                                                const run = !!modelData.running
+                                                Qt.callLater(() => {
+                                                    if (run) WindowTracker.activateOrToggle(tgt)
+                                                    else AppLauncher.launch(tgt, args)
+                                                })
+                                            }
+                                        }
+                                    }
+                                    onCanceled: {
+                                        if (m3DockWin.dragFromIdx === index) {
+                                            m3DockWin.dragFromIdx = -1
+                                            m3DockWin.dragToIdx = -1
+                                            m3DockWin.dragDeltaX = 0
+                                            m3DockWin.dragActive = false
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Rectangle { width: 1; height: 22; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
+                    Rectangle { width: 1; height: 26; anchors.verticalCenter: parent.verticalCenter; color: m3Root.colLayer0Border }
 
+                    // App Drawer Button
                     Rectangle {
-                        width: 40; height: 40; radius: 20; anchors.verticalCenter: parent.verticalCenter
+                        width: 44; height: 44; radius: 22; anchors.verticalCenter: parent.verticalCenter
                         color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colPrimary : m3Root.colLayer1
-                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 20; text: m3Root.hasSymbols ? "apps" : "⊞"; color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary }
-                        MouseArea { id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.callLater(() => m3Root.toggleLauncher(false)) }
+                        Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 21; text: m3Root.hasSymbols ? "apps" : "⊞"; color: (m3Root.launcherOpen || m3DockAppsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colPrimary }
+                        MouseArea {
+                            id: m3DockAppsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onEntered: { m3DockWin.hoveredLabel = "All Apps"; m3DockWin.hoveredCenterX = m3DockWin.targetW - 44 }
+                            onExited: { if (m3DockWin.hoveredLabel === "All Apps") m3DockWin.hoveredLabel = "" }
+                            onClicked: Qt.callLater(() => m3Root.toggleLauncher(false))
+                        }
                     }
                 }
             }
@@ -3349,6 +3597,7 @@ Item {
     Loader { active: m3Root.mediaPopupOpen; sourceComponent: Component { M3MediaPopup { m3Root: shellRef } } }
     Loader { active: m3Root.clipboardPopupOpen; sourceComponent: Component { M3ClipboardPopup { m3Root: shellRef } } }
     Loader { active: m3Root.presetStoreMounted; sourceComponent: Component { M3PresetStoreModal { m3Root: shellRef } } }
+    Loader { active: m3Root.dockMenuMounted; sourceComponent: Component { M3DockMenuPopup { m3Root: shellRef } } }
     M3OsdPopup { m3Root: shellRef }
     M3NotifPopup { m3Root: shellRef }
     M3ScreenCorners { m3Root: shellRef }
