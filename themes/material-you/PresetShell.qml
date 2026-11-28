@@ -25,7 +25,8 @@ Item {
 
     property bool sidebarOpen: false
     property double sidebarClosedAt: 0
-    property string sidebarSubView: "" // "" | "wifi" | "bt" | "audio" | "display" | "widgets"
+    property string sidebarClosedSubView: ""
+    property string sidebarSubView: "" // "" | "wifi" | "bt" | "audio" | "display" | "widgets" | "worldclock"
     property string sbBottomTab: "notifs" // "notifs" | "calendar" | "todo" | "pomo"
     property int selMonIdx: 0
     property string wifiPwSsid: ""
@@ -182,7 +183,7 @@ Item {
     function togglePresetStore() {
         const wasOpen = presetStoreOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - presetStoreClosedAt) < 280)
+        if (!wasOpen && (Date.now() - presetStoreClosedAt) < 380)
             return
         if (wasOpen) {
             presetStoreClosedAt = Date.now()
@@ -194,15 +195,35 @@ Item {
         }
     }
 
+    function toggleSidebarView(view) {
+        const wasOpen = sidebarOpen
+        const prevView = sidebarSubView
+        closeAllPopups()
+        if (wasOpen && prevView === view) {
+            sidebarClosedSubView = view
+            sidebarClosedAt = Date.now()
+            sidebarOpen = false
+            return false
+        }
+        if (!wasOpen && (Date.now() - sidebarClosedAt) < 380 && sidebarClosedSubView === view)
+            return false
+        sidebarSubView = view
+        sidebarOpen = true
+        return true
+    }
+
     function toggleQuickPanel(fromHotkey) {
         const wasOpen = sidebarOpen
+        const prevView = sidebarSubView
         closeAllPopups()
-        if (!fromHotkey && !wasOpen && (Date.now() - sidebarClosedAt) < 280)
+        if (!fromHotkey && !wasOpen && (Date.now() - sidebarClosedAt) < 380)
             return
         if (wasOpen) {
+            sidebarClosedSubView = prevView
             sidebarClosedAt = Date.now()
             sidebarOpen = false
         } else {
+            sidebarSubView = ""
             sidebarOpen = true
         }
     }
@@ -210,7 +231,7 @@ Item {
     function toggleLauncher(fromHotkey) {
         const wasOpen = launcherOpen
         closeAllPopups()
-        if (!fromHotkey && !wasOpen && (Date.now() - launcherClosedAt) < 280)
+        if (!fromHotkey && !wasOpen && (Date.now() - launcherClosedAt) < 380)
             return
         if (wasOpen) {
             launcherClosedAt = Date.now()
@@ -223,7 +244,7 @@ Item {
     function toggleWeatherPopup() {
         const wasOpen = weatherPopupOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - weatherClosedAt) < 280)
+        if (!wasOpen && (Date.now() - weatherClosedAt) < 380)
             return
         if (wasOpen) {
             weatherClosedAt = Date.now()
@@ -237,7 +258,7 @@ Item {
     function toggleCalendarPopup() {
         const wasOpen = calendarPopupOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - calendarClosedAt) < 280)
+        if (!wasOpen && (Date.now() - calendarClosedAt) < 380)
             return
         if (wasOpen) {
             calendarClosedAt = Date.now()
@@ -252,7 +273,7 @@ Item {
     function toggleWallpaperPicker() {
         const wasOpen = wallpaperPickerOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - wallpaperClosedAt) < 280)
+        if (!wasOpen && (Date.now() - wallpaperClosedAt) < 380)
             return
         if (wasOpen) {
             wallpaperClosedAt = Date.now()
@@ -266,7 +287,7 @@ Item {
     function toggleSessionScreen() {
         const wasOpen = sessionScreenOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - sessionClosedAt) < 280)
+        if (!wasOpen && (Date.now() - sessionClosedAt) < 380)
             return
         if (wasOpen) {
             sessionClosedAt = Date.now()
@@ -279,7 +300,7 @@ Item {
     function toggleMediaPopup() {
         const wasOpen = mediaPopupOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - mediaPopupClosedAt) < 280)
+        if (!wasOpen && (Date.now() - mediaPopupClosedAt) < 380)
             return
         if (wasOpen) {
             mediaPopupClosedAt = Date.now()
@@ -292,7 +313,7 @@ Item {
     function toggleClipboardPopup() {
         const wasOpen = clipboardPopupOpen
         closeAllPopups()
-        if (!wasOpen && (Date.now() - clipboardClosedAt) < 280)
+        if (!wasOpen && (Date.now() - clipboardClosedAt) < 380)
             return
         if (wasOpen) {
             clipboardClosedAt = Date.now()
@@ -660,12 +681,8 @@ Item {
                         MouseArea {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
-                                m3Root.launcherOpen = false
-                                m3Root.weatherPopupOpen = false
-                                m3Root.calendarPopupOpen = false
-                                m3Root.sidebarSubView = "wifi"
-                                m3Root.sidebarOpen = true
-                                SystemControl.refreshWifi()
+                                if (m3Root.toggleSidebarView("wifi"))
+                                    SystemControl.refreshWifi()
                             })
                         }
                     }
@@ -677,12 +694,8 @@ Item {
                         MouseArea {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
-                                m3Root.launcherOpen = false
-                                m3Root.weatherPopupOpen = false
-                                m3Root.calendarPopupOpen = false
-                                m3Root.sidebarSubView = "bt"
-                                m3Root.sidebarOpen = true
-                                SystemControl.refreshBluetooth()
+                                if (m3Root.toggleSidebarView("bt"))
+                                    SystemControl.refreshBluetooth()
                             })
                         }
                     }
@@ -868,11 +881,7 @@ Item {
                         Text { id: m3BarWpBtnTxt; anchors.centerIn: parent; text: "Widgets"; font.family: "Segoe UI"; font.pixelSize: 11; font.weight: Font.Bold; color: (m3Root.sidebarOpen && m3Root.sidebarSubView === "widgets" || m3BarWidgetsMa.containsMouse) ? m3Root.colOnPrimary : m3Root.colOnLayer0 }
                         MouseArea {
                             id: m3BarWidgetsMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.callLater(() => {
-                                m3Root.closeAllPopups()
-                                m3Root.sidebarSubView = "widgets"
-                                m3Root.sidebarOpen = true
-                            })
+                            onClicked: Qt.callLater(() => m3Root.toggleSidebarView("widgets"))
                         }
                     }
 
@@ -945,11 +954,7 @@ Item {
                             Text { anchors.centerIn: parent; font.family: m3Root.iconFontName; font.pixelSize: 17; text: m3Root.hasSymbols ? "widgets" : "⊞"; color: m3Root.colOnPrimaryContainer }
                             MouseArea {
                                 id: ucSetMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.callLater(() => {
-                                    m3Root.launcherOpen = false
-                                    m3Root.sidebarSubView = "widgets"
-                                    m3Root.sidebarOpen = true
-                                })
+                                onClicked: Qt.callLater(() => m3Root.toggleSidebarView("widgets"))
                             }
                         }
                         Rectangle {
@@ -1008,10 +1013,8 @@ Item {
                         MouseArea {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(() => {
-                                m3Root.closeAllPopups()
                                 m3Root.worldClockEditSlot = 0
-                                m3Root.sidebarSubView = "worldclock"
-                                m3Root.sidebarOpen = true
+                                m3Root.toggleSidebarView("worldclock")
                             })
                         }
                     }
@@ -1051,10 +1054,12 @@ Item {
                                 onClicked: {
                                     const sl = index
                                     Qt.callLater(() => {
-                                        m3Root.closeAllPopups()
-                                        m3Root.worldClockEditSlot = sl
-                                        m3Root.sidebarSubView = "worldclock"
-                                        m3Root.sidebarOpen = true
+                                        if (m3Root.sidebarOpen && m3Root.sidebarSubView === "worldclock" && m3Root.worldClockEditSlot !== sl) {
+                                            m3Root.worldClockEditSlot = sl
+                                        } else {
+                                            m3Root.worldClockEditSlot = sl
+                                            m3Root.toggleSidebarView("worldclock")
+                                        }
                                     })
                                 }
                             }
@@ -1488,7 +1493,8 @@ Item {
             } else {
                 sbFocusTimer.stop()
                 sbFocusRetryTimer.stop()
-                m3Root.sidebarSubView = ""
+                if (!m3Root.sidebarOpen)
+                    m3Root.sidebarSubView = ""
                 m3Root.wifiPwSsid = ""
                 m3Root.wifiPwVisible = false
                 wifiPwInput.text = ""
@@ -1496,6 +1502,7 @@ Item {
         }
         onWindowDeactivated: {
             if (m3Root.sidebarOpen) {
+                m3Root.sidebarClosedSubView = m3Root.sidebarSubView
                 m3Root.sidebarClosedAt = Date.now()
                 m3Root.sidebarOpen = false
             }
